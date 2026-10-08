@@ -12,6 +12,8 @@ A minimal hub for RSS-A groups, as a Cloudflare Worker with one Durable Object p
 - speaks **WebSub** (publish pings; subscribe with verification of intent; push with `X-Hub-Signature`);
 - keeps the **last known key** through a card outage (`identityGrace`) and records unannounced key changes;
 - exposes the validator at `/validate?url=`;
+- serves an **MCP endpoint** at `POST /mcp` (Streamable HTTP, stateless): `rssa_read_feed`, `rssa_read_group`,
+  `rssa_validate`, so any MCP client can read and verify feeds and groups;
 - reports **gate metrics** (distinct readers identifying their card, WebSub subscribers) in `status.json`.
 
 Not in v0.1: identity attestation, private groups, payments and anchoring (see [`../spec/core.md`](../spec/core.md) §10).

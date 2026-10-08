@@ -79,6 +79,9 @@ behind the hub.
 | `GET /g/<id>/status.json` | Members, rejected entries with their reasons, and gate metrics. |
 | `POST /g/<id>/join` | Open groups only. |
 | `GET /validate?url=` | The validator, as JSON. |
+
+The reference hub also serves an MCP endpoint at `POST /mcp` (read, verify and validate tools). It is a
+convenience of that implementation, not part of the protocol; other hubs need not offer it.
 | `POST /groups` (admin) | Register a group by policy URL. |
 
 The hub pulls member feeds; members never upload to it. For each new entry it checks size, then
