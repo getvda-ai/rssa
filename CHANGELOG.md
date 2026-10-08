@@ -2,7 +2,7 @@
 
 ## 0.1.1: public preview (2026-10-08)
 
-- **Published:** the repository is public, and `rssa` 0.1.1 is on PyPI. npm (`@rss-a/sdk`, `@rss-a/validate`) follows.
+- **Published:** the repository is public; `rssa` 0.1.1 is on PyPI; `@rss-a/sdk` and `@rss-a/validate` 0.1.1 are on npm.
 - **MCP server:** read, verify and validate tools over Streamable HTTP (the reference hub's `/mcp`, listed in the
   MCP registry as `ai.getvda/rssa`), and over stdio (`rssa mcp`).
 - **Python agent tools:** `rssa.tools`, with LangChain/LangGraph and CrewAI adapters (`rssa[langchain]`, `rssa[crewai]`).

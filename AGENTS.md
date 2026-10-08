@@ -14,9 +14,8 @@ confusing, that is a bug in RSS-A, not in your work. Report it (see the end of t
 
 ```bash
 pip install rssa                          # Python SDK + `python -m rssa`
-# Validator CLI (Node 22.18+), until @rss-a/sdk is on npm, from a clone:
-git clone https://github.com/getvda-ai/rssa && cd rssa && npm install
-bin/rssa validate <url>                   # on Windows: bin\rssa.cmd
+npm install @rss-a/sdk                    # TypeScript SDK (Node 20+)
+npx @rss-a/validate <url>                 # validator CLI
 # TypeScript agents: npm run build, then  npm install <path-to-clone>/packages/sdk-js
 ```
 
