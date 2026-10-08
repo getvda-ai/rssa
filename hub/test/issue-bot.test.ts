@@ -25,6 +25,8 @@ test("bot: a float in a pasted payload is named, located and fixed (the classic 
   assert.match(md, /`float`/);
   assert.match(md, /12\.50/);
   assert.match(md, /languages disagree on how to print decimals/, "the bot's own explanation, not just the parser message");
+  assert.match(md, /`\$\.total` is `12\.50`, which isn't an integer\./, "one plain sentence: what and where");
+  assert.doesNotMatch(md, /at offset|\(at \$/, "no parser internals repeated");
 });
 
 test("bot: duplicate keys, a non-canonical entry payload, and missing payload fields are explained", async () => {

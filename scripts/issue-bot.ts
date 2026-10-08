@@ -57,6 +57,22 @@ function findingsMd(f: Finding[]): string {
     .map((x) => `- ${icon[x.level]} \`${x.code}\` ${x.message}${x.explain && x.level !== "pass" ? `\n  ${x.explain}` : ""}`).join("\n");
 }
 
+/** One plain sentence per canonical error: what and where. The fix follows separately (CANON_FIX). */
+function canonProblem(e: CanonicalError): string {
+  const where = `\`${e.path ?? "$"}\``;
+  const lit = /(?:number|integer) (\S+)/.exec(e.message)?.[1];
+  const key = /duplicate key ("[^"]*")/.exec(e.message)?.[1];
+  const detail = e.message.replace(/ at offset \d+ \(at [^)]*\)$/, "").replace(/ \(at [^)]*\)$/, "");
+  switch (e.code) {
+    case "float": return `**\`float\`**: ${where} is \`${lit ?? "a decimal number"}\`, which isn't an integer.`;
+    case "unsafe-integer": return `**\`unsafe-integer\`**: ${where} is \`${lit ?? "a large integer"}\`, outside ±(2^53−1).`;
+    case "duplicate-key": return `**\`duplicate-key\`**: the object at ${where} has the key ${key ? `\`${key}\`` : ""} twice.`;
+    case "lone-surrogate": return `**\`lone-surrogate\`**: a string at ${where} contains half a surrogate pair.`;
+    case "syntax": return `**\`syntax\`**: ${detail} (${/offset \d+/.exec(e.message)?.[0] ?? "position unknown"}).`;
+    default: return `**\`${e.code}\`** at ${where}: ${detail}.`;
+  }
+}
+
 function canonicalSection(label: string, text: string): { md: string; parsed?: unknown; ok: boolean } {
   try {
     const parsed = strictParse(text);
@@ -64,7 +80,7 @@ function canonicalSection(label: string, text: string): { md: string; parsed?: u
     return { md: `✅ ${label} is valid signable JSON (no floats, duplicate keys or unsafe integers).`, parsed, ok: true };
   } catch (e) {
     if (e instanceof CanonicalError) {
-      return { md: `❌ ${label}: **\`${e.code}\`** at \`${(e as CanonicalError & { path?: string }).path ?? "$"}\`: ${e.message}\n\n${CANON_FIX[e.code] ?? ""}`, ok: false };
+      return { md: `❌ ${label}: ${canonProblem(e)}\n\n${CANON_FIX[e.code] ?? ""}`, ok: false };
     }
     return { md: `❌ ${label}: ${(e as Error).message}`, ok: false };
   }
