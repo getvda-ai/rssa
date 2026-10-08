@@ -6,6 +6,8 @@ import { withRssa } from "./card.ts";
 import { generateKey, keyFromJwk } from "./keys.ts";
 import { parsePolicy, rosterOpml, signPolicy } from "./policy.ts";
 import { formatReport, signCard, validate } from "./validate.ts";
+import { createInterface } from "node:readline";
+import { handleMcpMessage, type JsonRpc, type McpOptions } from "./mcp.ts";
 
 const HELP = `rssa — RSS for Agents
 
@@ -24,6 +26,10 @@ const HELP = `rssa — RSS for Agents
 
   rssa sign-card <card.json> --key <key.json>      Signs the card (A2A native signatures field), in place.
   rssa sign-policy <policy.json> --key <key.json>  Signs a group policy in place, and writes roster.opml beside it.
+
+  rssa mcp [--reader-card <your card URL>]
+      Runs an MCP server on stdio with tools to read, verify and filter agent feeds and
+      groups, and to validate. For Claude Desktop, Cursor, CrewAI, LangGraph and other MCP clients.
 `;
 
 const args = process.argv.slice(2);
@@ -53,6 +59,10 @@ async function main() {
       : await validate(as ?? target, { deep: !has("shallow"), text: readFileSync(target, "utf8") });
     console.log(has("json") ? JSON.stringify(report, null, 2) : formatReport(report, has("verbose")));
     process.exitCode = report.ok ? 0 : 1;
+    return;
+  }
+  if (cmd === "mcp") {
+    await serveMcpStdio({ readerCard: flag("reader-card") });
     return;
   }
   if (cmd === "keygen") {
@@ -101,3 +111,19 @@ main().catch((e) => {
   console.error(`rssa: ${e.message}`);
   process.exitCode = 2;
 });
+
+/** stdio transport: one JSON-RPC message per line on stdin, responses on stdout. */
+async function serveMcpStdio(o: McpOptions = {}) {
+  const rl = createInterface({ input: process.stdin });
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    let msg: unknown;
+    try { msg = JSON.parse(line); } catch {
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }) + "\n");
+      continue;
+    }
+    const msgs = Array.isArray(msg) ? msg : [msg];
+    const out = (await Promise.all(msgs.map((m) => handleMcpMessage(m as JsonRpc, o)))).filter((r) => r !== undefined);
+    if (out.length) process.stdout.write(JSON.stringify(Array.isArray(msg) ? out : out[0]) + "\n");
+  }
+}

@@ -5,7 +5,7 @@
 // Durable Object (worker.ts). In Node (tests, perf harness) groups run in-process over the injected
 // Store. A member index (store.ts) sends each WebSub ping only to the groups that contain it.
 
-import { validate } from "../../packages/sdk-js/src/index.ts";
+import { handleMcpHttp, validate } from "../../packages/sdk-js/src/index.ts";
 import { Group, deliver, type DeliveryMessage, type LegacyGroup, type CardState, type Subscription } from "./group.ts";
 import { Directory, storeGroupStore, type Store } from "./store.ts";
 
@@ -182,7 +182,13 @@ export class Hub {
         return this.websub(new URLSearchParams(await req.text()));
       }
       if (req.method === "GET" && path === "/") {
-        return j({ name: "RSSA reference hub", version: "0.2.0", spec: "https://github.com/getvda-ai/rssa", groups: (await this.groupIds()).map((id) => `${url.origin}/g/${id}/`), websub: `${url.origin}/`, validate: `${url.origin}/validate?url=` });
+        return j({ name: "RSSA reference hub", version: "0.2.0", spec: "https://github.com/getvda-ai/rssa", groups: (await this.groupIds()).map((id) => `${url.origin}/g/${id}/`), websub: `${url.origin}/`, validate: `${url.origin}/validate?url=`, mcp: `${url.origin}/mcp` });
+      }
+      if (path === "/mcp") {
+        // MCP endpoint (a reference-hub extra, not part of the protocol): read, verify and validate
+        // feeds and groups from any MCP client. The hub's own URLs are answered in-process.
+        const fetcher = (u: string, i?: RequestInit) => (u.startsWith(`${url.origin}/`) ? this.handle(new Request(u, i)) : this.c.fetch(u, i));
+        return handleMcpHttp(req, { fetcher });
       }
       if (req.method === "GET" && path === "/validate") {
         const target = url.searchParams.get("url");
