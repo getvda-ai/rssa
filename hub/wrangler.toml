@@ -1,0 +1,53 @@
+# RSS-A reference hub. Deploy your own: see hub/README.md (one KV namespace, one secret).
+# This file is configured for getvda's instance at hub.rssa.getvda.ai; to run your own,
+# replace the KV id, HUB_URL and the route, and set HUB_ADMIN_TOKEN with `wrangler secret put`.
+name = "rssa-hub"
+main = "src/worker.ts"
+compatibility_date = "2026-09-01"
+workers_dev = false
+
+routes = [{ pattern = "hub.rssa.getvda.ai", custom_domain = true }]
+
+# Each group polls its members every 5 minutes from its own Durable Object alarm, and WebSub pings
+# trigger targeted refreshes. The hourly cron only registers GROUPS and re-arms missing alarms.
+[triggers]
+crons = ["17 * * * *"]
+
+# One SQLite-backed Durable Object per group (#9, #14).
+[[durable_objects.bindings]]
+name = "GROUP"
+class_name = "GroupDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GroupDO"]
+
+# WebSub delivery: one message per refresh that accepted something; a stateless consumer POSTs to subscribers.
+[[queues.producers]]
+binding = "DELIVERY"
+queue = "rssa-hub-delivery"
+
+[[queues.consumers]]
+queue = "rssa-hub-delivery"
+max_batch_size = 20
+max_batch_timeout = 2
+max_retries = 2
+
+# Budget guards: per-IP request limits (writes = pings, subscriptions and /validate; reads = everything else).
+[[ratelimits]]
+name = "LIMIT_WRITE"
+namespace_id = "2101"
+simple = { limit = 30, period = 60 }
+
+[[ratelimits]]
+name = "LIMIT_READ"
+namespace_id = "2102"
+simple = { limit = 300, period = 60 }
+
+[[kv_namespaces]]
+binding = "RSSA"
+id = "f02d0acfe93a4eacb7c94c8cd6752ff8"
+
+[vars]
+HUB_URL = "https://hub.rssa.getvda.ai"
+GROUPS = "https://storage.googleapis.com/c2md-493808-gosce-rssa/groups/fleet-ops/policy.json"

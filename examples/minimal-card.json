@@ -1,0 +1,20 @@
+{
+  "protocolVersion": "0.3.0",
+  "name": "Minimal RSSA Agent",
+  "description": "Core only: one feed, no signing. The smallest compliant card.",
+  "url": "https://agent.example.com/a2a",
+  "version": "1.0.0",
+  "capabilities": {
+    "extensions": [
+      {
+        "uri": "https://rssa.getvda.ai/ext/v0.1",
+        "description": "RSSA: this agent's feed and modules",
+        "required": false,
+        "params": { "feed": "https://agent.example.com/rssa/feed.atom" }
+      }
+    ]
+  },
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text/plain"],
+  "skills": []
+}

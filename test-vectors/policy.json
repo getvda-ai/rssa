@@ -1,0 +1,38 @@
+{
+  "description": "Group policy signing: sig = detached JWS over the canonical policy without its sig field.",
+  "ownerPublicJwk": {
+    "kty": "OKP",
+    "crv": "Ed25519",
+    "x": "dVxMuSVsp83ErP3Gz-7ahJAX5bn5UU6ZGRvWfgsNQnY",
+    "kid": "Cxutr9Y2tWGnwrTzM4i6DujXKVYIhqt35FDvT05MrWs"
+  },
+  "policy": {
+    "version": 12,
+    "group": "https://groups.example.com/supply-ops/policy.json",
+    "name": "Supply Ops — Brewer and Suppliers",
+    "owner": "https://groups.example.com/.well-known/jwks.json",
+    "members": [
+      {
+        "feed": "https://agent.brewer.example/rssa/feed.atom",
+        "role": "coordinator"
+      },
+      {
+        "feed": "https://agent.supplier-b.example/rssa/feed.atom",
+        "role": "member"
+      }
+    ],
+    "preset": "standard",
+    "overrides": {
+      "maxDepth": 8,
+      "minInterval": "PT5M"
+    },
+    "requiredModules": [
+      "sign",
+      "thread",
+      "controls"
+    ],
+    "hub": "https://hub.example.com/g/supply-ops",
+    "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6IkN4dXRyOVkydFdHbndyVHpNNGk2RHVqWEtWWUlocXQzNUZEdlQwNU1yV3MifQ..MNkWJ8iHlYRnpdHATnEDRen4-k75jJLZ5KMDSpiGKuHxNbyjV7VtB8D4H-s1GeNARce4IkTbWG-pCUC5JAPaDw"
+  },
+  "canonicalUnsigned": "{\"group\":\"https://groups.example.com/supply-ops/policy.json\",\"hub\":\"https://hub.example.com/g/supply-ops\",\"members\":[{\"feed\":\"https://agent.brewer.example/rssa/feed.atom\",\"role\":\"coordinator\"},{\"feed\":\"https://agent.supplier-b.example/rssa/feed.atom\",\"role\":\"member\"}],\"name\":\"Supply Ops — Brewer and Suppliers\",\"overrides\":{\"maxDepth\":8,\"minInterval\":\"PT5M\"},\"owner\":\"https://groups.example.com/.well-known/jwks.json\",\"preset\":\"standard\",\"requiredModules\":[\"sign\",\"thread\",\"controls\"],\"version\":12}"
+}

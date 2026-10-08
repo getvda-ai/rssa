@@ -1,0 +1,99 @@
+{
+  "description": "Each vector must FAIL verification against entries.json publicJwk; failsCheck names the check that fails.",
+  "vectors": [
+    {
+      "feed": "https://agent.example.com/rssa/feed.atom",
+      "name": "summary-changed",
+      "entry": {
+        "id": "urn:uuid:7c1e2d3a-0000-4000-8000-000000000001",
+        "updated": "2026-10-05T14:20:00Z",
+        "type": "exception.reported",
+        "to": "role:logistics",
+        "source": "https://erp.example.com/orders/88231",
+        "summary": "Order 88231 on time.",
+        "content": "Container MSKU1234567 held at Rotterdam.\r\nNew ETA 2026-10-07. Amount at risk: \"12.50\" EUR/unit."
+      },
+      "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNDOTZyVmltMU9IdnFFOHA1TGlYTGIzOG9aN2hGY0RNN21tMnRKUWppUEUifQ..G3ZSuY1_I8innsSRm_fTDFe6pDINEycDY8lzePq-0tORcf8I9xbNgRzAeXCEHNRPlCgLxMsEOhTbYH17waMnBw",
+      "payload": "{\"contentHash\":\"sha256:7803493fe215848c6026af54b110dc89b7a36dbf161d0d71160bb4ad7806b705\",\"feed\":\"https://agent.example.com/rssa/feed.atom\",\"id\":\"urn:uuid:7c1e2d3a-0000-4000-8000-000000000001\",\"source\":\"https://erp.example.com/orders/88231\",\"to\":\"role:logistics\",\"type\":\"exception.reported\",\"updated\":\"2026-10-05T14:20:00Z\"}",
+      "failsCheck": "content-hash"
+    },
+    {
+      "feed": "https://agent.example.com/rssa/feed.atom",
+      "name": "to-added",
+      "entry": {
+        "id": "tag:agent.example.com,2026:brief-1",
+        "updated": "2026-10-05T16:00:00Z",
+        "summary": "  Café prices ↑ 3% 😀  ",
+        "content": "<p>HTML content &amp; entities</p>",
+        "to": "group"
+      },
+      "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNDOTZyVmltMU9IdnFFOHA1TGlYTGIzOG9aN2hGY0RNN21tMnRKUWppUEUifQ..VT8Z6uvyKMmi5EuOhxe990dymVyMFNKq7nl4I5cojegt8tBrv7VktYqSOq8QVNXvjpL932H7TW7aVCbtyX4ZAg",
+      "payload": "{\"contentHash\":\"sha256:921e16317460db7e6e40c8672ae07eb897a482e0e23a7402365139fa89d73275\",\"feed\":\"https://agent.example.com/rssa/feed.atom\",\"id\":\"tag:agent.example.com,2026:brief-1\",\"updated\":\"2026-10-05T16:00:00Z\"}",
+      "failsCheck": "bind-to"
+    },
+    {
+      "feed": "https://evil.example/feed.atom",
+      "name": "copied-to-other-feed",
+      "entry": {
+        "id": "urn:uuid:7c1e2d3a-0000-4000-8000-000000000001",
+        "updated": "2026-10-05T14:20:00Z",
+        "type": "exception.reported",
+        "to": "role:logistics",
+        "source": "https://erp.example.com/orders/88231",
+        "summary": "Order 88231 delayed 48h: port congestion at Rotterdam.",
+        "content": "Container MSKU1234567 held at Rotterdam.\r\nNew ETA 2026-10-07. Amount at risk: \"12.50\" EUR/unit."
+      },
+      "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNDOTZyVmltMU9IdnFFOHA1TGlYTGIzOG9aN2hGY0RNN21tMnRKUWppUEUifQ..G3ZSuY1_I8innsSRm_fTDFe6pDINEycDY8lzePq-0tORcf8I9xbNgRzAeXCEHNRPlCgLxMsEOhTbYH17waMnBw",
+      "payload": "{\"contentHash\":\"sha256:7803493fe215848c6026af54b110dc89b7a36dbf161d0d71160bb4ad7806b705\",\"feed\":\"https://agent.example.com/rssa/feed.atom\",\"id\":\"urn:uuid:7c1e2d3a-0000-4000-8000-000000000001\",\"source\":\"https://erp.example.com/orders/88231\",\"to\":\"role:logistics\",\"type\":\"exception.reported\",\"updated\":\"2026-10-05T14:20:00Z\"}",
+      "failsCheck": "bind-feed"
+    },
+    {
+      "feed": "https://agent.example.com/rssa/feed.atom",
+      "name": "updated-changed",
+      "entry": {
+        "id": "urn:uuid:7c1e2d3a-0000-4000-8000-000000000001",
+        "updated": "2026-10-06T14:20:00Z",
+        "type": "exception.reported",
+        "to": "role:logistics",
+        "source": "https://erp.example.com/orders/88231",
+        "summary": "Order 88231 delayed 48h: port congestion at Rotterdam.",
+        "content": "Container MSKU1234567 held at Rotterdam.\r\nNew ETA 2026-10-07. Amount at risk: \"12.50\" EUR/unit."
+      },
+      "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNDOTZyVmltMU9IdnFFOHA1TGlYTGIzOG9aN2hGY0RNN21tMnRKUWppUEUifQ..G3ZSuY1_I8innsSRm_fTDFe6pDINEycDY8lzePq-0tORcf8I9xbNgRzAeXCEHNRPlCgLxMsEOhTbYH17waMnBw",
+      "payload": "{\"contentHash\":\"sha256:7803493fe215848c6026af54b110dc89b7a36dbf161d0d71160bb4ad7806b705\",\"feed\":\"https://agent.example.com/rssa/feed.atom\",\"id\":\"urn:uuid:7c1e2d3a-0000-4000-8000-000000000001\",\"source\":\"https://erp.example.com/orders/88231\",\"to\":\"role:logistics\",\"type\":\"exception.reported\",\"updated\":\"2026-10-06T14:20:00Z\"}",
+      "failsCheck": "signature"
+    },
+    {
+      "feed": "https://agent.example.com/rssa/feed.atom",
+      "name": "float-in-payload",
+      "entry": {
+        "id": "urn:uuid:7c1e2d3a-0000-4000-8000-000000000001",
+        "updated": "2026-10-05T14:20:00Z",
+        "type": "exception.reported",
+        "to": "role:logistics",
+        "source": "https://erp.example.com/orders/88231",
+        "summary": "Order 88231 delayed 48h: port congestion at Rotterdam.",
+        "content": "Container MSKU1234567 held at Rotterdam.\r\nNew ETA 2026-10-07. Amount at risk: \"12.50\" EUR/unit."
+      },
+      "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNDOTZyVmltMU9IdnFFOHA1TGlYTGIzOG9aN2hGY0RNN21tMnRKUWppUEUifQ..G3ZSuY1_I8innsSRm_fTDFe6pDINEycDY8lzePq-0tORcf8I9xbNgRzAeXCEHNRPlCgLxMsEOhTbYH17waMnBw",
+      "payload": "{\"contentHash\":\"sha256:7803493fe215848c6026af54b110dc89b7a36dbf161d0d71160bb4ad7806b705\",\"feed\":\"https://agent.example.com/rssa/feed.atom\",\"amount\":12.5,\"id\":\"urn:uuid:7c1e2d3a-0000-4000-8000-000000000001\",\"source\":\"https://erp.example.com/orders/88231\",\"to\":\"role:logistics\",\"type\":\"exception.reported\",\"updated\":\"2026-10-05T14:20:00Z\"}",
+      "failsCheck": "payload-float"
+    },
+    {
+      "feed": "https://agent.example.com/rssa/feed.atom",
+      "name": "wrong-key",
+      "entry": {
+        "id": "urn:uuid:7c1e2d3a-0000-4000-8000-000000000001",
+        "updated": "2026-10-05T14:20:00Z",
+        "type": "exception.reported",
+        "to": "role:logistics",
+        "source": "https://erp.example.com/orders/88231",
+        "summary": "Order 88231 delayed 48h: port congestion at Rotterdam.",
+        "content": "Container MSKU1234567 held at Rotterdam.\r\nNew ETA 2026-10-07. Amount at risk: \"12.50\" EUR/unit."
+      },
+      "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6IlhiZ2JpR3hXY3owTWV3bUZUQlh2Q2hCYXRvTTFSQXNySzllUDlNdWU1VXcifQ..9AHKw1dru3vhoRL4YPFcHmXbuTxv4RMO7VNBayGfhMMnpkkiKYHV3kFvxlUKowyHle6U6dAcc20h1YdRlXl5Dw",
+      "payload": "{\"contentHash\":\"sha256:7803493fe215848c6026af54b110dc89b7a36dbf161d0d71160bb4ad7806b705\",\"feed\":\"https://agent.example.com/rssa/feed.atom\",\"id\":\"urn:uuid:7c1e2d3a-0000-4000-8000-000000000001\",\"source\":\"https://erp.example.com/orders/88231\",\"to\":\"role:logistics\",\"type\":\"exception.reported\",\"updated\":\"2026-10-05T14:20:00Z\"}",
+      "failsCheck": "signature"
+    }
+  ]
+}

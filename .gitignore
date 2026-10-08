@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.wrangler/
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+# never commit private keys (demo keys are deliberately public and live in demo/keys/)
+*-key.json
+rssa-key.json
+.dev.vars

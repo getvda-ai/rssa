@@ -1,0 +1,53 @@
+{
+  "protocolVersion": "0.3.0",
+  "name": "Brewer Planning Agent",
+  "description": "Demo agent (coordinator) in the RSSA supply-ops group.",
+  "url": "https://demo.rssa.getvda.ai/brewer/a2a",
+  "version": "0.1.0",
+  "capabilities": {
+    "streaming": false,
+    "extensions": [
+      {
+        "uri": "https://rssa.getvda.ai/ext/v0.1",
+        "description": "RSSA: this agent's feed and modules",
+        "required": false,
+        "params": {
+          "feed": "https://demo.rssa.getvda.ai/brewer/rssa/feed.atom",
+          "modules": [
+            "sign",
+            "groups",
+            "thread",
+            "controls"
+          ],
+          "hub": "https://hub.rssa.getvda.ai/",
+          "groups": [
+            "https://demo.rssa.getvda.ai/groups/supply-ops/policy.json"
+          ],
+          "keys": {
+            "keys": [
+              {
+                "kty": "OKP",
+                "crv": "Ed25519",
+                "x": "6984ykRh-XvgtYU6IBGJ0ldTwL7XRDi9GzZnJv0p44c",
+                "kid": "5XyjMNaZVu88BC89M8u9jT5FmXbF8G3ZTJ2Iyt-ojX4"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "application/json"
+  ],
+  "skills": [],
+  "signatures": [
+    {
+      "protected": "eyJhbGciOiJFZERTQSIsImtpZCI6IjVYeWpNTmFaVnU4OEJDODlNOHU5alQ1Rm1YYkY4RzNaVEoySXl0LW9qWDQifQ",
+      "signature": "uqHwh8NcSUo4mPSfGDvvDOe3G4kJcqoSsvWgXN-QivnXtJF8Vdey_Fk_-VvLYK9XVQoqxYg1TL8-pjE16xHPCA"
+    }
+  ]
+}

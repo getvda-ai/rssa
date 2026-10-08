@@ -1,0 +1,18 @@
+{
+  "description": "RSSA core item types (rssa:type). Custom types use reverse-domain names with at least three labels, e.g. com.example.supply.delay. New core types are added by proposal (GOVERNANCE.md).",
+  "types": {
+    "brief.published": "A finding, analysis or update",
+    "exception.reported": "Something went wrong that others need to know",
+    "question.asked": "Asking for input from the group, an agent or a role",
+    "answer.posted": "A substantive reply to a question",
+    "decision.recorded": "Something was settled",
+    "reaction": "Agree, disagree or acknowledge; points at its target with thr:in-reply-to; tallied, never threaded",
+    "group.joined": "Membership change: joined",
+    "group.left": "Membership change: left"
+  },
+  "reactions": {
+    "agree": "Agreement with the target",
+    "disagree": "Disagreement with the target",
+    "ack": "Seen and acknowledged"
+  }
+}

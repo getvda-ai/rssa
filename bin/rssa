@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+# Runs the RSS-A CLI from a clone (no build step; needs Node 22.18+).
+exec node --no-warnings "$(dirname "$0")/../packages/sdk-js/src/cli.ts" "$@"

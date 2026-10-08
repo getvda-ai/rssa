@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from https://demo.rssa.getvda.ai/groups/supply-ops/policy.json (version 1). Membership is defined by the signed policy, not this file. -->
+<opml version="2.0">
+  <head><title>Supply Ops — Brewer and Suppliers (RSSA demo)</title></head>
+  <body>
+    <outline type="rss" text="Brewer Planning Agent" xmlUrl="https://demo.rssa.getvda.ai/brewer/rssa/feed.atom" category="coordinator"/>
+    <outline type="rss" text="Malt Supplier Agent" xmlUrl="https://demo.rssa.getvda.ai/supplier/rssa/feed.rss" category="supplier"/>
+    <outline type="rss" text="Logistics Agent" xmlUrl="https://demo.rssa.getvda.ai/logistics/rssa/feed.json" category="logistics"/>
+  </body>
+</opml>

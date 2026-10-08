@@ -1,0 +1,63 @@
+{
+  "description": "Entry signing. contentHash = sha256 of contentHashInput (canonical JSON of the trimmed, LF-normalised summary and content). sig = detached compact JWS (EdDSA) over payloadCanonical. Verify every sig with publicJwk; re-sign with privateJwk and get the same sig (Ed25519 is deterministic).",
+  "privateJwk": {
+    "kty": "OKP",
+    "crv": "Ed25519",
+    "x": "5AMJmM_VrRcjwWn5VqoLnrhhm1mSvWEsKvQo68efjfA",
+    "d": "AQgPFh0kKzI5QEdOVVxjanF4f4aNlJuiqbC3vsXM09o",
+    "kid": "cC96rVim1OHvqE8p5LiXLb38oZ7hFcDM7mm2tJQjiPE"
+  },
+  "publicJwk": {
+    "kty": "OKP",
+    "crv": "Ed25519",
+    "x": "5AMJmM_VrRcjwWn5VqoLnrhhm1mSvWEsKvQo68efjfA",
+    "kid": "cC96rVim1OHvqE8p5LiXLb38oZ7hFcDM7mm2tJQjiPE"
+  },
+  "kid": "cC96rVim1OHvqE8p5LiXLb38oZ7hFcDM7mm2tJQjiPE",
+  "thumbprintInput": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"5AMJmM_VrRcjwWn5VqoLnrhhm1mSvWEsKvQo68efjfA\"}",
+  "vectors": [
+    {
+      "entry": {
+        "id": "urn:uuid:7c1e2d3a-0000-4000-8000-000000000001",
+        "updated": "2026-10-05T14:20:00Z",
+        "type": "exception.reported",
+        "to": "role:logistics",
+        "source": "https://erp.example.com/orders/88231",
+        "summary": "Order 88231 delayed 48h: port congestion at Rotterdam.",
+        "content": "Container MSKU1234567 held at Rotterdam.\r\nNew ETA 2026-10-07. Amount at risk: \"12.50\" EUR/unit."
+      },
+      "feed": "https://agent.example.com/rssa/feed.atom",
+      "contentHashInput": "{\"content\":\"Container MSKU1234567 held at Rotterdam.\\nNew ETA 2026-10-07. Amount at risk: \\\"12.50\\\" EUR/unit.\",\"summary\":\"Order 88231 delayed 48h: port congestion at Rotterdam.\"}",
+      "contentHash": "sha256:7803493fe215848c6026af54b110dc89b7a36dbf161d0d71160bb4ad7806b705",
+      "payloadCanonical": "{\"contentHash\":\"sha256:7803493fe215848c6026af54b110dc89b7a36dbf161d0d71160bb4ad7806b705\",\"feed\":\"https://agent.example.com/rssa/feed.atom\",\"id\":\"urn:uuid:7c1e2d3a-0000-4000-8000-000000000001\",\"source\":\"https://erp.example.com/orders/88231\",\"to\":\"role:logistics\",\"type\":\"exception.reported\",\"updated\":\"2026-10-05T14:20:00Z\"}",
+      "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNDOTZyVmltMU9IdnFFOHA1TGlYTGIzOG9aN2hGY0RNN21tMnRKUWppUEUifQ..G3ZSuY1_I8innsSRm_fTDFe6pDINEycDY8lzePq-0tORcf8I9xbNgRzAeXCEHNRPlCgLxMsEOhTbYH17waMnBw"
+    },
+    {
+      "entry": {
+        "id": "urn:uuid:7c1e2d3a-0000-4000-8000-000000000002",
+        "updated": "2026-10-05T15:00:00Z",
+        "type": "reaction",
+        "reaction": "ack",
+        "inReplyTo": "urn:uuid:7c1e2d3a-0000-4000-8000-000000000001"
+      },
+      "feed": "https://agent.example.com/rssa/feed.atom",
+      "contentHashInput": "{}",
+      "contentHash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "payloadCanonical": "{\"contentHash\":\"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"feed\":\"https://agent.example.com/rssa/feed.atom\",\"id\":\"urn:uuid:7c1e2d3a-0000-4000-8000-000000000002\",\"inReplyTo\":\"urn:uuid:7c1e2d3a-0000-4000-8000-000000000001\",\"reaction\":\"ack\",\"type\":\"reaction\",\"updated\":\"2026-10-05T15:00:00Z\"}",
+      "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNDOTZyVmltMU9IdnFFOHA1TGlYTGIzOG9aN2hGY0RNN21tMnRKUWppUEUifQ..Kbx2ba6s6EDinDW-HIVEXwiIz2InR6kz_ZpfcNLD4ekTdEVMbObRhJCAlwqVcVg18ilqgp-jXgyfjcicPpucCw"
+    },
+    {
+      "entry": {
+        "id": "tag:agent.example.com,2026:brief-1",
+        "updated": "2026-10-05T16:00:00Z",
+        "summary": "  Café prices ↑ 3% 😀  ",
+        "content": "<p>HTML content &amp; entities</p>"
+      },
+      "feed": "https://agent.example.com/rssa/feed.atom",
+      "contentHashInput": "{\"content\":\"<p>HTML content &amp; entities</p>\",\"summary\":\"Café prices ↑ 3% 😀\"}",
+      "contentHash": "sha256:921e16317460db7e6e40c8672ae07eb897a482e0e23a7402365139fa89d73275",
+      "payloadCanonical": "{\"contentHash\":\"sha256:921e16317460db7e6e40c8672ae07eb897a482e0e23a7402365139fa89d73275\",\"feed\":\"https://agent.example.com/rssa/feed.atom\",\"id\":\"tag:agent.example.com,2026:brief-1\",\"updated\":\"2026-10-05T16:00:00Z\"}",
+      "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNDOTZyVmltMU9IdnFFOHA1TGlYTGIzOG9aN2hGY0RNN21tMnRKUWppUEUifQ..VT8Z6uvyKMmi5EuOhxe990dymVyMFNKq7nl4I5cojegt8tBrv7VktYqSOq8QVNXvjpL932H7TW7aVCbtyX4ZAg"
+    }
+  ]
+}

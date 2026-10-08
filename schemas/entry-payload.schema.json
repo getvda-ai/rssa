@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rssa.getvda.ai/schemas/entry-payload-0.1.json",
+  "title": "RSSA signed entry payload (rssa:payload)",
+  "type": "object",
+  "required": ["id", "updated", "feed", "contentHash"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string" },
+    "updated": { "type": "string", "format": "date-time" },
+    "feed": { "type": "string" },
+    "contentHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "type": { "type": "string" },
+    "to": { "type": "string" },
+    "source": { "type": "string" },
+    "inReplyTo": { "type": "string" },
+    "reaction": { "type": "string" }
+  }
+}

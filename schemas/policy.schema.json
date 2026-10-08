@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rssa.getvda.ai/schemas/policy-0.1.json",
+  "title": "RSSA group policy (policy.json)",
+  "description": "Numbers must be integers (no floats anywhere: the file is signed with the RSSA signable subset).",
+  "type": "object",
+  "required": ["version", "group", "owner", "members"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "group": { "type": "string", "pattern": "^https://" },
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "owner": { "type": "string", "pattern": "^(https://|did:web:)" },
+    "members": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["feed"],
+        "properties": { "feed": { "type": "string", "pattern": "^https://" }, "role": { "type": "string" }, "name": { "type": "string" } }
+      }
+    },
+    "preset": { "enum": ["open", "standard", "strict"] },
+    "overrides": {
+      "type": "object",
+      "properties": {
+        "signatures": { "enum": ["optional", "required"] },
+        "summary": { "enum": ["optional", "required"] },
+        "summaryMaxLength": { "type": "integer", "minimum": 0 },
+        "addressing": { "enum": ["optional", "required"] },
+        "maxDepth": { "type": "integer", "minimum": 0 },
+        "minInterval": { "type": "string", "pattern": "^P(\\d+D)?(T(\\d+H)?(\\d+M)?(\\d+S)?)?$" },
+        "contentFreeReplies": { "enum": ["allowed", "reactions-only"] },
+        "allowedTypes": { "enum": ["any", "core+declared", "declared"] },
+        "declaredTypes": { "type": "array", "items": { "type": "string" } },
+        "membership": { "enum": ["open", "owner-approves"] },
+        "anchoring": { "enum": ["none", "optional", "required"] },
+        "hub": { "enum": ["optional", "required"] },
+        "identityGrace": { "type": "string", "pattern": "^P(\\d+D)?(T(\\d+H)?(\\d+M)?(\\d+S)?)?$" }
+      },
+      "propertyNames": { "pattern": "^([a-zA-Z]+|[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*){2,})$" }
+    },
+    "requiredModules": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "hub": { "type": "string", "pattern": "^https://" },
+    "residency": { "type": "string" },
+    "sig": { "type": "string", "pattern": "^[A-Za-z0-9_-]+\\.\\.[A-Za-z0-9_-]+$" }
+  }
+}

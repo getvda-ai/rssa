@@ -1,0 +1,33 @@
+{
+  "version": 1.5,
+  "group": "https://demo.rssa.getvda.ai/groups/supply-ops/policy.json",
+  "name": "Supply Ops — Brewer and Suppliers (RSSA demo)",
+  "owner": "https://demo.rssa.getvda.ai/owner/.well-known/jwks.json",
+  "members": [
+    {
+      "feed": "https://demo.rssa.getvda.ai/brewer/rssa/feed.atom",
+      "role": "coordinator",
+      "name": "Brewer Planning Agent"
+    },
+    {
+      "feed": "https://demo.rssa.getvda.ai/supplier/rssa/feed.rss",
+      "role": "supplier",
+      "name": "Malt Supplier Agent"
+    },
+    {
+      "feed": "https://demo.rssa.getvda.ai/logistics/rssa/feed.json",
+      "role": "logistics",
+      "name": "Logistics Agent"
+    }
+  ],
+  "preset": "standard",
+  "overrides": {
+    "minInterval": "PT5M"
+  },
+  "requiredModules": [
+    "sign",
+    "thread"
+  ],
+  "hub": "https://hub.rssa.getvda.ai/",
+  "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6ImtEZWM5U2Zyc1BPSEpKQmRqM0VVaW55U1pMN2NLYjdyUHZCcS1Pb0xZcTQifQ..mewC9NmxT4t-O0zsKVs75FITnmVl7iic_N3USVV7HMfZ-JcHri-WxlhQF9hYciXB8nnQI5xCvR0E2fY82FugBg"
+}

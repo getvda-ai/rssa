@@ -1,0 +1,53 @@
+{
+  "protocolVersion": "0.3.0",
+  "name": "Malt Supplier Agent",
+  "description": "Demo agent (supplier) in the RSSA supply-ops group.",
+  "url": "https://demo.rssa.getvda.ai/supplier/a2a",
+  "version": "0.1.0",
+  "capabilities": {
+    "streaming": false,
+    "extensions": [
+      {
+        "uri": "https://rssa.getvda.ai/ext/v0.1",
+        "description": "RSSA: this agent's feed and modules",
+        "required": false,
+        "params": {
+          "feed": "https://demo.rssa.getvda.ai/supplier/rssa/feed.rss",
+          "modules": [
+            "sign",
+            "groups",
+            "thread",
+            "controls"
+          ],
+          "hub": "https://hub.rssa.getvda.ai/",
+          "groups": [
+            "https://demo.rssa.getvda.ai/groups/supply-ops/policy.json"
+          ],
+          "keys": {
+            "keys": [
+              {
+                "kty": "OKP",
+                "crv": "Ed25519",
+                "x": "C7p8_vR_Ac2m8CnZkPLJHPXpfmsqTA9JY90iBnQVaog",
+                "kid": "Ogku_PprTEoat72wmWLy5eTN3_wn2NKWWfWNfJ_yQ30"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "application/json"
+  ],
+  "skills": [],
+  "signatures": [
+    {
+      "protected": "eyJhbGciOiJFZERTQSIsImtpZCI6Ik9na3VfUHByVEVvYXQ3MndtV0x5NWVUTjNfd24yTktXV2ZXTmZKX3lRMzAifQ",
+      "signature": "9yZVcLMfWFd0DyBqbWXpoDYM_4mwUPHEQsFa4HvSuXOrN2VqfK78CaEekrHfCoihxvJZBmZQPUqQwah2unacDw"
+    }
+  ]
+}

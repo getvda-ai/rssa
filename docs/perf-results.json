@@ -1,0 +1,440 @@
+{
+  "A": {
+    "perEntryMs": {
+      "raw Ed25519 verify (key imported once)": 0.14513730000000005,
+      "canonicalize payload": 0.04994139999999999,
+      "contentHash": 0.04009675000000004,
+      "signEntry": 0.20105809999999996,
+      "verifyEntry (SDK, full)": 0.24704489999999998
+    },
+    "perVerify": {
+      "importKey": 1,
+      "digest": 1,
+      "verify": 1
+    }
+  },
+  "B": [
+    {
+      "members": 3,
+      "first": {
+        "cpu": 52.28929999999991,
+        "wall": 52.28929999999991,
+        "accepted": 60,
+        "verifies": 61,
+        "subrequests": 8,
+        "rowReads": 0,
+        "rowWrites": 68,
+        "kvWrites": 7,
+        "bytesWritten": 127243
+      },
+      "steady": {
+        "cpu": 5.602699999999913,
+        "accepted": 1,
+        "verifies": 2,
+        "subrequests": 5,
+        "rowReads": 0,
+        "rowWrites": 4,
+        "kvWrites": 0,
+        "bytesWritten": 70548
+      },
+      "noEtag": {
+        "cpu": 4.373399999999947,
+        "accepted": 0,
+        "verifies": 1
+      }
+    },
+    {
+      "members": 10,
+      "first": {
+        "cpu": 76.27330000000029,
+        "wall": 76.27330000000029,
+        "accepted": 195,
+        "verifies": 196,
+        "subrequests": 22,
+        "rowReads": 0,
+        "rowWrites": 222,
+        "kvWrites": 21,
+        "bytesWritten": 413502
+      },
+      "steady": {
+        "cpu": 4.831900000000132,
+        "accepted": 1,
+        "verifies": 2,
+        "subrequests": 12,
+        "rowReads": 0,
+        "rowWrites": 4,
+        "kvWrites": 0,
+        "bytesWritten": 223352
+      },
+      "noEtag": {
+        "cpu": 12.638899999999921,
+        "accepted": 0,
+        "verifies": 1
+      }
+    },
+    {
+      "members": 30,
+      "first": {
+        "cpu": 225.45580000000018,
+        "wall": 225.45580000000018,
+        "accepted": 500,
+        "verifies": 586,
+        "subrequests": 62,
+        "rowReads": 0,
+        "rowWrites": 578,
+        "kvWrites": 61,
+        "bytesWritten": 1073258
+      },
+      "steady": {
+        "cpu": 15.1558,
+        "accepted": 1,
+        "verifies": 2,
+        "subrequests": 32,
+        "rowReads": 0,
+        "rowWrites": 6,
+        "kvWrites": 0,
+        "bytesWritten": 573363
+      },
+      "noEtag": {
+        "cpu": 80.92799999999988,
+        "accepted": 0,
+        "verifies": 1
+      }
+    },
+    {
+      "members": 100,
+      "first": {
+        "cpu": 1213.4625999999998,
+        "wall": 1213.4625999999998,
+        "accepted": 500,
+        "verifies": 1946,
+        "subrequests": 202,
+        "rowReads": 0,
+        "rowWrites": 758,
+        "kvWrites": 201,
+        "bytesWritten": 1140953
+      },
+      "steady": {
+        "cpu": 16.6279999999997,
+        "accepted": 1,
+        "verifies": 2,
+        "subrequests": 102,
+        "rowReads": 0,
+        "rowWrites": 6,
+        "kvWrites": 0,
+        "bytesWritten": 597085
+      },
+      "noEtag": {
+        "cpu": 172.92630000000008,
+        "accepted": 0,
+        "verifies": 1
+      }
+    },
+    {
+      "members": 300,
+      "first": {
+        "cpu": 3207.9804000000004,
+        "wall": 3207.9804000000004,
+        "accepted": 500,
+        "verifies": 5836,
+        "subrequests": 602,
+        "rowReads": 0,
+        "rowWrites": 1268,
+        "kvWrites": 601,
+        "bytesWritten": 1312051
+      },
+      "steady": {
+        "cpu": 67.23199999999997,
+        "accepted": 1,
+        "verifies": 2,
+        "subrequests": 302,
+        "rowReads": 0,
+        "rowWrites": 6,
+        "kvWrites": 0,
+        "bytesWritten": 648506
+      },
+      "noEtag": {
+        "cpu": 553.0701000000008,
+        "accepted": 0,
+        "verifies": 1
+      }
+    }
+  ],
+  "C": {
+    "junkEntries": {
+      "verifies": 34,
+      "cpu": 76.51790000000256
+    },
+    "junkPing": [
+      {
+        "groups": 1,
+        "status": 202,
+        "kvReads": 1,
+        "rowReads": 0,
+        "cpu": 0.9297000000005937
+      },
+      {
+        "groups": 10,
+        "status": 202,
+        "kvReads": 1,
+        "rowReads": 0,
+        "cpu": 0.6379999999990105
+      },
+      {
+        "groups": 100,
+        "status": 202,
+        "kvReads": 1,
+        "rowReads": 0,
+        "cpu": 0.3548000000009779
+      }
+    ]
+  },
+  "D": {
+    "rows": {
+      "GET feed.atom (500 entries)": {
+        "cpu": 2.5073000000011234,
+        "status": 200,
+        "responseBytes": 551275,
+        "rowReadsPerReq": 0,
+        "kvReadsPerReq": 1,
+        "bytesReadPerReq": 16,
+        "writesPerReq": 0
+      },
+      "GET feed.atom If-None-Match (304)": {
+        "cpu": 0.06440000000293367,
+        "status": 304,
+        "responseBytes": 0,
+        "rowReadsPerReq": 0,
+        "kvReadsPerReq": 1,
+        "bytesReadPerReq": 16,
+        "writesPerReq": 0
+      },
+      "GET feed.atom?to=role:ops": {
+        "cpu": 2.9971999999979744,
+        "status": 200,
+        "responseBytes": 193810,
+        "rowReadsPerReq": 0,
+        "kvReadsPerReq": 1,
+        "bytesReadPerReq": 16,
+        "writesPerReq": 0
+      },
+      "GET feed.atom?type=answer.": {
+        "cpu": 1.3848999999972875,
+        "status": 200,
+        "responseBytes": 131891,
+        "rowReadsPerReq": 0,
+        "kvReadsPerReq": 1,
+        "bytesReadPerReq": 16,
+        "writesPerReq": 0
+      },
+      "GET status.json": {
+        "cpu": 0.18430000000080327,
+        "status": 200,
+        "responseBytes": 6318,
+        "rowReadsPerReq": 0,
+        "kvReadsPerReq": 1,
+        "bytesReadPerReq": 16,
+        "writesPerReq": 0
+      }
+    },
+    "identifiedReaders": {
+      "readers": 200,
+      "rowWrites": 200
+    }
+  },
+  "E": [
+    {
+      "members": 3,
+      "subscribers": 1,
+      "seconds": 0.21560840000000098,
+      "subrequests": 2,
+      "pushes": 1
+    },
+    {
+      "members": 10,
+      "subscribers": 1,
+      "seconds": 0.21746240000000033,
+      "subrequests": 2,
+      "pushes": 1
+    },
+    {
+      "members": 30,
+      "subscribers": 1,
+      "seconds": 0.2306275999999998,
+      "subrequests": 2,
+      "pushes": 1
+    },
+    {
+      "members": 100,
+      "subscribers": 1,
+      "seconds": 0.23174639999999636,
+      "subrequests": 2,
+      "pushes": 1
+    },
+    {
+      "members": 10,
+      "subscribers": 50,
+      "seconds": 0.232270199999999,
+      "subrequests": 51,
+      "pushes": 50
+    }
+  ],
+  "F": {
+    "accepted": 172,
+    "sizes": {
+      "rows": 307,
+      "totalBytes": 21024713,
+      "largestRow": 450000,
+      "xmlChunks": 24
+    },
+    "oversize": []
+  },
+  "G": [
+    {
+      "etags": true,
+      "first": 500,
+      "laterAccepted": [
+        0,
+        0,
+        0
+      ],
+      "laterVerifies": [
+        1,
+        1,
+        1
+      ],
+      "laterPushes": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "etags": false,
+      "first": 500,
+      "laterAccepted": [
+        0,
+        0,
+        0
+      ],
+      "laterVerifies": [
+        1,
+        1,
+        1
+      ],
+      "laterPushes": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "H": {
+    "scheduled": [
+      "5 min: held",
+      "10 min: held",
+      "14 min: held",
+      "16 min: accepted"
+    ],
+    "urgent": true,
+    "rejectedAs": [
+      "no published key has kid hIendGPnmzbXEvxxihKiaogyS_GQuyKCV8EJwvhUw5U (published: jRn7U_kzQfu5n88Z0Bc4Br3D6ALBJZN5hI6wwh0t25c)"
+    ]
+  },
+  "I": [
+    {
+      "members": 3,
+      "entries": 60,
+      "cpu": 22.779600000001665,
+      "requests": 8,
+      "filterKept": 10,
+      "filterCpu": 0.2547999999951571
+    },
+    {
+      "members": 10,
+      "entries": 195,
+      "cpu": 44.89650000000256,
+      "requests": 22,
+      "filterKept": 40,
+      "filterCpu": 0.07990000000427244
+    },
+    {
+      "members": 30,
+      "entries": 585,
+      "cpu": 128.6050999999934,
+      "requests": 62,
+      "filterKept": 130,
+      "filterCpu": 0.33299999999871943
+    },
+    {
+      "members": 100,
+      "entries": 1945,
+      "cpu": 545.5685999999987,
+      "requests": 202,
+      "filterKept": 440,
+      "filterCpu": 0.5420999999987544
+    }
+  ],
+  "J": [
+    {
+      "members": 10,
+      "subscribers": 0,
+      "perPing": {
+        "kvReads": 1,
+        "fetches": 1.8,
+        "rowWrites": 4.8,
+        "pushes": 0,
+        "cpu": 2.584900000000198
+      },
+      "idlePoll": {
+        "rowWrites": 1,
+        "fetches": 12
+      }
+    },
+    {
+      "members": 10,
+      "subscribers": 1,
+      "perPing": {
+        "kvReads": 1,
+        "fetches": 1.8,
+        "rowWrites": 4.8,
+        "pushes": 1,
+        "cpu": 4.404479999998875
+      },
+      "idlePoll": {
+        "rowWrites": 1,
+        "fetches": 12
+      }
+    },
+    {
+      "members": 20,
+      "subscribers": 1,
+      "perPing": {
+        "kvReads": 1,
+        "fetches": 1.8,
+        "rowWrites": 4.8,
+        "pushes": 1,
+        "cpu": 5.665699999999196
+      },
+      "idlePoll": {
+        "rowWrites": 1,
+        "fetches": 22
+      }
+    },
+    {
+      "members": 100,
+      "subscribers": 1,
+      "perPing": {
+        "kvReads": 1,
+        "fetches": 1.8,
+        "rowWrites": 5.8,
+        "pushes": 1,
+        "cpu": 16.5247000000003
+      },
+      "idlePoll": {
+        "rowWrites": 1,
+        "fetches": 102
+      }
+    }
+  ]
+}

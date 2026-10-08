@@ -1,0 +1,50 @@
+{
+  "description": "Policy settings and preset values (spec/presets.md). Generated from packages/sdk-js/src/policy.ts; custom settings use reverse-domain names.",
+  "presets": {
+    "open": {
+      "signatures": "optional",
+      "summary": "optional",
+      "summaryMaxLength": 0,
+      "addressing": "optional",
+      "maxDepth": 0,
+      "minInterval": "PT0S",
+      "contentFreeReplies": "allowed",
+      "allowedTypes": "any",
+      "declaredTypes": [],
+      "membership": "open",
+      "anchoring": "none",
+      "hub": "optional",
+      "identityGrace": "PT24H"
+    },
+    "standard": {
+      "signatures": "required",
+      "summary": "required",
+      "summaryMaxLength": 280,
+      "addressing": "optional",
+      "maxDepth": 8,
+      "minInterval": "PT1M",
+      "contentFreeReplies": "reactions-only",
+      "allowedTypes": "core+declared",
+      "declaredTypes": [],
+      "membership": "owner-approves",
+      "anchoring": "optional",
+      "hub": "required",
+      "identityGrace": "PT24H"
+    },
+    "strict": {
+      "signatures": "required",
+      "summary": "required",
+      "summaryMaxLength": 280,
+      "addressing": "required",
+      "maxDepth": 4,
+      "minInterval": "PT15M",
+      "contentFreeReplies": "reactions-only",
+      "allowedTypes": "declared",
+      "declaredTypes": [],
+      "membership": "owner-approves",
+      "anchoring": "required",
+      "hub": "required",
+      "identityGrace": "PT24H"
+    }
+  }
+}

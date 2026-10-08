@@ -1,0 +1,8 @@
+{
+  "protocolVersion": "0.3.0",
+  "name": "Plain A2A agent",
+  "capabilities": {
+    "streaming": false
+  },
+  "skills": []
+}

@@ -1,0 +1,30 @@
+{
+  "brewer": {
+    "kty": "OKP",
+    "crv": "Ed25519",
+    "x": "6984ykRh-XvgtYU6IBGJ0ldTwL7XRDi9GzZnJv0p44c",
+    "d": "Hyw5RlNgbXqHlKGuu8jV4u_8CRYjMD1KV2RxfouYpbI",
+    "kid": "5XyjMNaZVu88BC89M8u9jT5FmXbF8G3ZTJ2Iyt-ojX4"
+  },
+  "supplier": {
+    "kty": "OKP",
+    "crv": "Ed25519",
+    "x": "C7p8_vR_Ac2m8CnZkPLJHPXpfmsqTA9JY90iBnQVaog",
+    "d": "PktYZXJ_jJmms8DN2uf0AQ4bKDVCT1xpdoOQnaq3xNE",
+    "kid": "Ogku_PprTEoat72wmWLy5eTN3_wn2NKWWfWNfJ_yQ30"
+  },
+  "logistics": {
+    "kty": "OKP",
+    "crv": "Ed25519",
+    "x": "CaR2tlhuQstc9bqkYvhJrLRY5pkB23RHYpwNWx0v-tk",
+    "d": "XWp3hJGeq7jF0t_s-QYTIC06R1RhbnuIlaKvvMnW4_A",
+    "kid": "bKmfr-SEwv5853WcsJR_0zoD2nwm27gKyTwsoz6LzJc"
+  },
+  "owner": {
+    "kty": "OKP",
+    "crv": "Ed25519",
+    "x": "PHApgdtWW6aBZ4QNDeVVbmdcvd0amytzIKzmSFLoh1g",
+    "d": "FyQxPktYZXJ_jJmms8DN2uf0AQ4bKDVCT1xpdoOQnao",
+    "kid": "kDec9SfrsPOHJJBdj3EUinySZL7cKb7rPvBq-OoLYq4"
+  }
+}

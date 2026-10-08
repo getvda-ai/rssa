@@ -1,0 +1,84 @@
+{
+  "description": "RFC 8785 (JCS) restricted to the RSSA signable subset. `valid`: canonical output must match byte for byte. `invalid`: the implementation must reject the input with the given error code.",
+  "valid": [
+    {
+      "name": "key-order",
+      "input": "{\"b\":1,\"a\":2,\"A\":3,\"aa\":4,\"_\":5}",
+      "canonical": "{\"A\":3,\"_\":5,\"a\":2,\"aa\":4,\"b\":1}",
+      "canonicalHex": "7b2241223a332c225f223a352c2261223a322c226161223a342c2262223a317d"
+    },
+    {
+      "name": "utf16-order",
+      "input": "{\"€\":1,\"😀\":2,\"ﬁ\":3,\"z\":4}",
+      "canonical": "{\"z\":4,\"€\":1,\"😀\":2,\"ﬁ\":3}",
+      "canonicalHex": "7b227a223a342c22e282ac223a312c22f09f9880223a322c22efac81223a337d"
+    },
+    {
+      "name": "nested",
+      "input": "{\"z\":{\"y\":[3,1,{\"b\":true,\"a\":null}]},\"a\":\"x\"}",
+      "canonical": "{\"a\":\"x\",\"z\":{\"y\":[3,1,{\"a\":null,\"b\":true}]}}",
+      "canonicalHex": "7b2261223a2278222c227a223a7b2279223a5b332c312c7b2261223a6e756c6c2c2262223a747275657d5d7d7d"
+    },
+    {
+      "name": "escapes",
+      "input": "{\"s\":\"quote\\\" backslash\\\\ nl\\n tab\\t cr\\r bs\\b ff\\f ctl\\u0001 del\\u007f slash\\/ nbsp\\u00a0\"}",
+      "canonical": "{\"s\":\"quote\\\" backslash\\\\ nl\\n tab\\t cr\\r bs\\b ff\\f ctl\\u0001 del slash/ nbsp \"}",
+      "canonicalHex": "7b2273223a2271756f74655c22206261636b736c6173685c5c206e6c5c6e207461625c742063725c722062735c622066665c662063746c5c75303030312064656c7f20736c6173682f206e627370c2a0227d"
+    },
+    {
+      "name": "unicode-literal",
+      "input": "{\"s\":\"caf\\u00e9 é 😀  \"}",
+      "canonical": "{\"s\":\"café é 😀  \"}",
+      "canonicalHex": "7b2273223a22636166c3a920c3a920f09f988020e280a8227d"
+    },
+    {
+      "name": "integers",
+      "input": "{\"max\":9007199254740991,\"min\":-9007199254740991,\"zero\":0,\"neg\":-42}",
+      "canonical": "{\"max\":9007199254740991,\"min\":-9007199254740991,\"neg\":-42,\"zero\":0}",
+      "canonicalHex": "7b226d6178223a393030373139393235343734303939312c226d696e223a2d393030373139393235343734303939312c226e6567223a2d34322c227a65726f223a307d"
+    },
+    {
+      "name": "whitespace",
+      "input": "  { \"a\" : [ 1 , 2 ] ,\n \"b\" : \"c\" }  ",
+      "canonical": "{\"a\":[1,2],\"b\":\"c\"}",
+      "canonicalHex": "7b2261223a5b312c325d2c2262223a2263227d"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "float",
+      "input": "{\"amount\":12.5}",
+      "error": "float"
+    },
+    {
+      "name": "float-trailing-zero",
+      "input": "{\"amount\":1.0}",
+      "error": "float"
+    },
+    {
+      "name": "exponent",
+      "input": "{\"n\":1e3}",
+      "error": "float"
+    },
+    {
+      "name": "unsafe-integer",
+      "input": "{\"n\":9007199254740992}",
+      "error": "unsafe-integer"
+    },
+    {
+      "name": "duplicate-key",
+      "input": "{\"a\":1,\"a\":2}",
+      "error": "duplicate-key"
+    },
+    {
+      "name": "lone-surrogate",
+      "input": "{\"s\":\"\\ud800\"}",
+      "error": "lone-surrogate"
+    },
+    {
+      "name": "trailing-garbage",
+      "input": "{\"a\":1}x",
+      "error": "syntax"
+    }
+  ]
+}

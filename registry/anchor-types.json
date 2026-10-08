@@ -1,0 +1,8 @@
+{
+  "description": "Reserved for the anchor module (not in v0.1). The spec names anchor types, never providers.",
+  "types": {
+    "tsa": "RFC 3161 trusted timestamp (qualified eIDAS timestamps carry a legal presumption of accuracy in the EU)",
+    "rekor": "Inclusion in the Sigstore transparency log",
+    "chain": "Merkle-root inclusion on a public blockchain (only hashes, never content)"
+  }
+}

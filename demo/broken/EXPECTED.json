@@ -1,0 +1,38 @@
+{
+  "summary-edited-after-signing.atom": {
+    "as": "https://demo.rssa.getvda.ai/brewer/rssa/feed.atom",
+    "code": "sign-content-hash"
+  },
+  "float-in-payload.atom": {
+    "as": "https://demo.rssa.getvda.ai/brewer/rssa/feed.atom",
+    "code": "sign-payload-float"
+  },
+  "duplicate-id.atom": {
+    "as": "https://demo.rssa.getvda.ai/brewer/rssa/feed.atom",
+    "code": "entry-duplicate-id"
+  },
+  "unsigned-entry.atom": {
+    "as": "https://demo.rssa.getvda.ai/brewer/rssa/feed.atom",
+    "code": "sign-unsigned"
+  },
+  "missing-updated.atom": {
+    "as": "https://demo.rssa.getvda.ai/brewer/rssa/feed.atom",
+    "code": "entry-core"
+  },
+  "policy-edited-after-signing.json": {
+    "as": "https://demo.rssa.getvda.ai/groups/supply-ops/policy.json",
+    "code": "policy-signature"
+  },
+  "policy-float.json": {
+    "as": "https://demo.rssa.getvda.ai/groups/supply-ops/policy.json",
+    "code": "policy-json"
+  },
+  "card-without-feed.json": {
+    "as": "https://demo.rssa.getvda.ai/nofeed/.well-known/agent-card.json",
+    "code": "card-feed"
+  },
+  "card-without-extension.json": {
+    "as": "https://demo.rssa.getvda.ai/plain/.well-known/agent-card.json",
+    "code": "card-extension"
+  }
+}

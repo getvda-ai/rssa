@@ -1,0 +1,15 @@
+{
+  "capabilities": {
+    "extensions": [
+      {
+        "description": "RSSA: this agent's feed and modules",
+        "params": {
+          "feed": ""
+        },
+        "required": false,
+        "uri": "https://rssa.getvda.ai/ext/v0.1"
+      }
+    ]
+  },
+  "name": "No feed agent"
+}

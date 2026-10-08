@@ -1,0 +1,31 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: npm ci
+      - run: pip install -e "packages/sdk-py[test]"
+      - name: Typecheck
+        run: npx tsc -p packages/sdk-js --noEmit && npx tsc -p hub --noEmit
+      - name: Unit tests (JS SDK, hub)
+        run: npm test
+      - name: Unit tests (Python SDK, shared vectors)
+        run: python -m pytest -q packages/sdk-py/tests
+      - name: End-to-end gate (demo green, broken red, Python verifies JS, schemas)
+        run: npm run check
+      - name: Generated files are up to date
+        run: |
+          node scripts/make-vectors.ts
+          node scripts/make-demo.ts
+          git diff --exit-code -- test-vectors demo
+      - name: Build packages
+        run: npm run build && npm pack --dry-run -w @rss-a/sdk

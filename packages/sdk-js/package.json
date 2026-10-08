@@ -1,0 +1,23 @@
+{
+  "name": "@rss-a/sdk",
+  "version": "0.1.1",
+  "description": "RSS-A (RSS for Agents): publish, sign, read and validate agent feeds and groups.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "bin": { "rssa": "dist/cli.js" },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p .",
+    "prepack": "tsc -p .",
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc -p . --noEmit"
+  },
+  "dependencies": { "@xmldom/xmldom": "^0.9.8" },
+  "devDependencies": { "typescript": "^5.9.0", "@types/node": "^22.0.0" },
+  "engines": { "node": ">=20" },
+  "repository": { "type": "git", "url": "https://github.com/getvda-ai/rssa", "directory": "packages/sdk-js" },
+  "keywords": ["rss", "atom", "agents", "a2a", "websub", "ai-agents", "rssa"]
+}

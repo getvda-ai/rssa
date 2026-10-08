@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rssa.getvda.ai/schemas/card-extension-0.1.json",
+  "title": "RSSA Agent Card extension (one entry of AgentCard.capabilities.extensions)",
+  "type": "object",
+  "required": ["uri", "params"],
+  "properties": {
+    "uri": { "const": "https://rssa.getvda.ai/ext/v0.1" },
+    "description": { "type": "string" },
+    "required": { "const": false },
+    "params": {
+      "type": "object",
+      "required": ["feed"],
+      "properties": {
+        "feed": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "modules": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9.-]*(@[0-9]+\\.[0-9]+)?$" }, "uniqueItems": true },
+        "hub": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "groups": { "type": "array", "items": { "type": "string", "format": "uri", "pattern": "^https://" }, "uniqueItems": true },
+        "keys": {
+          "oneOf": [
+            { "type": "string", "pattern": "^(https://|did:web:)" },
+            { "type": "object", "required": ["keys"], "properties": { "keys": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ed25519PublicJwk" } } } }
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "ed25519PublicJwk": {
+      "type": "object",
+      "required": ["kty", "crv", "x"],
+      "properties": { "kty": { "const": "OKP" }, "crv": { "const": "Ed25519" }, "x": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }, "kid": { "type": "string" } },
+      "not": { "required": ["d"] }
+    }
+  }
+}

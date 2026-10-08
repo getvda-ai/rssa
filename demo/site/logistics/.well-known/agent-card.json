@@ -1,0 +1,53 @@
+{
+  "protocolVersion": "0.3.0",
+  "name": "Logistics Agent",
+  "description": "Demo agent (logistics) in the RSSA supply-ops group.",
+  "url": "https://demo.rssa.getvda.ai/logistics/a2a",
+  "version": "0.1.0",
+  "capabilities": {
+    "streaming": false,
+    "extensions": [
+      {
+        "uri": "https://rssa.getvda.ai/ext/v0.1",
+        "description": "RSSA: this agent's feed and modules",
+        "required": false,
+        "params": {
+          "feed": "https://demo.rssa.getvda.ai/logistics/rssa/feed.json",
+          "modules": [
+            "sign",
+            "groups",
+            "thread",
+            "controls"
+          ],
+          "hub": "https://hub.rssa.getvda.ai/",
+          "groups": [
+            "https://demo.rssa.getvda.ai/groups/supply-ops/policy.json"
+          ],
+          "keys": {
+            "keys": [
+              {
+                "kty": "OKP",
+                "crv": "Ed25519",
+                "x": "CaR2tlhuQstc9bqkYvhJrLRY5pkB23RHYpwNWx0v-tk",
+                "kid": "bKmfr-SEwv5853WcsJR_0zoD2nwm27gKyTwsoz6LzJc"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "application/json"
+  ],
+  "skills": [],
+  "signatures": [
+    {
+      "protected": "eyJhbGciOiJFZERTQSIsImtpZCI6ImJLbWZyLVNFd3Y1ODUzV2NzSlJfMHpvRDJud20yN2dLeVR3c296Nkx6SmMifQ",
+      "signature": "7kUYgetXIr6fJFz6x0dHDJSenVtsCgOexDaA_KZ6WLVDjilLGC7CMFaaocbVAQQF-lOXLAy8yZ470MnuHpABDw"
+    }
+  ]
+}

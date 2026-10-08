@@ -1,0 +1,13 @@
+{
+  "name": "rssa-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/sdk-js", "packages/validate", "hub"],
+  "scripts": {
+    "build": "npm run build -w @rss-a/sdk",
+    "test": "npm test -w @rss-a/sdk && npm test -w rssa-hub",
+    "vectors": "node scripts/make-vectors.ts",
+    "check": "node scripts/check.ts"
+  },
+  "engines": { "node": ">=22.18" }
+}

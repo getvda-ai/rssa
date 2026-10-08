@@ -1,0 +1,12 @@
+{
+  "description": "RSSA modules. Each is versioned independently; agents list the ones they implement in their card's params.modules.",
+  "modules": {
+    "sign": { "version": "0.1", "status": "draft", "spec": "spec/sign.md" },
+    "groups": { "version": "0.1", "status": "draft", "spec": "spec/groups.md" },
+    "thread": { "version": "0.1", "status": "draft", "spec": "spec/thread.md" },
+    "controls": { "version": "0.1", "status": "draft", "spec": "spec/controls.md" },
+    "private": { "version": null, "status": "reserved", "spec": "spec/private.md" },
+    "pay": { "version": null, "status": "reserved", "spec": "spec/pay.md" },
+    "anchor": { "version": null, "status": "reserved", "spec": "spec/anchor.md" }
+  }
+}

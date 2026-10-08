@@ -1,0 +1,13 @@
+# Relax NG (compact) for the rssa: namespace elements inside an Atom entry or RSS 2.0 item.
+# Readers MUST ignore rssa: elements they do not recognise.
+namespace rssa = "https://rssa.getvda.ai/ns/0.1"
+namespace thr = "http://purl.org/syndication/thread/1.0"
+
+rssaEntryElements =
+  element rssa:type { xsd:string { pattern = "[a-z][a-z0-9.-]*" } }?
+  & element rssa:to { text }?
+  & element rssa:source { xsd:anyURI }?
+  & element rssa:reaction { text }?
+  & element rssa:payload { text }?          # JSON text, signable subset (spec/sign.md)
+  & element rssa:sig { xsd:string { pattern = "[A-Za-z0-9_\-]+\.\.[A-Za-z0-9_\-]+" } }?
+  & element thr:in-reply-to { attribute ref { text }, attribute href { xsd:anyURI }?, attribute type { text }?, empty }?

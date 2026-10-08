@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rssa"
+version = "0.1.1"
+description = "RSS-A (RSS for Agents): publish, sign, read and verify agent feeds and groups."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = ["cryptography>=42", "defusedxml>=0.7"]
+keywords = ["rss", "atom", "agents", "a2a", "websub", "rssa"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+rssa = "rssa.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/getvda-ai/rssa"
+
+[tool.setuptools]
+packages = ["rssa"]
