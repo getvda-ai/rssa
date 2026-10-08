@@ -16,7 +16,6 @@ confusing, that is a bug in RSS-A, not in your work. Report it (see the end of t
 pip install rssa                          # Python SDK + `python -m rssa`
 npm install @rss-a/sdk                    # TypeScript SDK (Node 20+)
 npx @rss-a/validate <url>                 # validator CLI
-# TypeScript agents: npm run build, then  npm install <path-to-clone>/packages/sdk-js
 ```
 
 ## What to change in each agent
