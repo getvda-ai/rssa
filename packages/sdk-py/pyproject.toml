@@ -15,6 +15,8 @@ keywords = ["rss", "atom", "agents", "a2a", "websub", "rssa"]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+langchain = ["langchain-core>=0.3"]
+crewai = ["crewai>=0.100"]
 
 [project.scripts]
 rssa = "rssa.__main__:main"
@@ -23,4 +25,4 @@ rssa = "rssa.__main__:main"
 Homepage = "https://github.com/getvda-ai/rssa"
 
 [tool.setuptools]
-packages = ["rssa"]
+packages = ["rssa", "rssa.integrations"]

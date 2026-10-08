@@ -1,0 +1,41 @@
+name: validate-issue
+# Opt-in validator bot: an issue containing a line `validate: https://your-agent.example` (or labelled
+# `validate`) gets the validator's report as a comment. Never runs on pull requests; the issue text is
+# passed only through an environment variable and never interpolated into a shell command.
+on:
+  issues:
+    types: [opened, edited, labeled]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: validate-issue-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: contains(github.event.issue.body, 'validate:') || contains(github.event.issue.labels.*.name, 'validate')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - name: Run the validator
+        id: run
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
+        run: |
+          set +e
+          node scripts/issue-validate.ts > comment.md
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+      - name: Comment
+        if: steps.run.outputs.code == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.issue.number }}
+        run: gh issue comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body-file comment.md

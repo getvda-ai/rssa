@@ -29,3 +29,18 @@ jobs:
           git diff --exit-code -- test-vectors demo
       - name: Build packages
         run: npm run build && npm pack --dry-run -w @rss-a/sdk
+
+  adapters:
+    # The framework adapters, each against the real library (they are skipped in the main job).
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        extra: ["langchain", "crewai"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e "packages/sdk-py[test,${{ matrix.extra }}]"
+      - if: matrix.extra == 'langchain'
+        run: pip install langgraph
+      - run: python -m pytest -q packages/sdk-py/tests/test_tools.py
