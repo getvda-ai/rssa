@@ -1,7 +1,9 @@
-name: validate-issue
-# Opt-in validator bot: an issue containing a line `validate: https://your-agent.example` (or labelled
-# `validate`) gets the validator's report as a comment. Never runs on pull requests; the issue text is
-# passed only through an environment variable and never interpolated into a shell command.
+name: support-bot
+# Answers signing and validation issues within seconds, deterministically (no LLM): it runs the SDK's
+# canonical-JSON rules and the validator on what the issue contains (pasted JSON, cards, policies,
+# entries, payloads, feeds, or a URL) and explains each problem with its fix. The script decides whether
+# an issue is for it (scripts/issue-bot.ts); unrelated issues get no comment. Never runs on pull requests;
+# issue text reaches the script only through environment variables and is never interpolated into shell.
 on:
   issues:
     types: [opened, edited, labeled]
@@ -11,12 +13,12 @@ permissions:
   issues: write
 
 concurrency:
-  group: validate-issue-${{ github.event.issue.number }}
+  group: support-bot-${{ github.event.issue.number }}
   cancel-in-progress: true
 
 jobs:
-  validate:
-    if: contains(github.event.issue.body, 'validate:') || contains(github.event.issue.labels.*.name, 'validate')
+  answer:
+    if: github.event.issue.user.type != 'Bot'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -24,18 +26,26 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: npm }
       - run: npm ci
-      - name: Run the validator
+      - name: Diagnose
         id: run
         env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
         run: |
           set +e
           node scripts/issue-validate.ts > comment.md
           echo "code=$?" >> "$GITHUB_OUTPUT"
-      - name: Comment
+      - name: Comment (one per issue, updated in place on edits)
         if: steps.run.outputs.code == '0'
         env:
           GH_TOKEN: ${{ github.token }}
           NUMBER: ${{ github.event.issue.number }}
-        run: gh issue comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body-file comment.md
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$NUMBER/comments" --paginate \
+                 --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- rssa-bot -->")))][0].id // empty')
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@comment.md >/dev/null
+          else
+            gh issue comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body-file comment.md
+          fi
