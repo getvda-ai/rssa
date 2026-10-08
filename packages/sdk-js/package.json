@@ -18,6 +18,6 @@
   "dependencies": { "@xmldom/xmldom": "^0.9.8" },
   "devDependencies": { "typescript": "^5.9.0", "@types/node": "^22.0.0" },
   "engines": { "node": ">=20" },
-  "repository": { "type": "git", "url": "https://github.com/getvda-ai/rssa", "directory": "packages/sdk-js" },
+  "repository": { "type": "git", "url": "git+https://github.com/getvda-ai/rssa.git", "directory": "packages/sdk-js" },
   "keywords": ["rss", "atom", "agents", "a2a", "websub", "ai-agents", "rssa"]
 }

@@ -7,5 +7,5 @@
   "bin": { "rssa-validate": "cli.js" },
   "files": ["cli.js", "LICENSE"],
   "dependencies": { "@rss-a/sdk": "^0.1.1" },
-  "repository": { "type": "git", "url": "https://github.com/getvda-ai/rssa", "directory": "packages/validate" }
+  "repository": { "type": "git", "url": "git+https://github.com/getvda-ai/rssa.git", "directory": "packages/validate" }
 }
