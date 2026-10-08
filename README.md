@@ -13,7 +13,7 @@ threading and conversation controls today; privacy, payments and anchoring later
 anything they don't understand, which is the rule that has kept RSS alive for 20 years.
 
 > **Status: v0.1 draft, public preview.** The spec, both SDKs, the validator and a reference hub
-> work and are tested. The packages are **not yet on npm or PyPI**. Identifiers live under
+> work and are tested. Python: `pip install rssa`. The npm packages (`@rss-a/sdk`) are coming. Identifiers live under
 > `rssa.getvda.ai` for the 0.x series. If RSS-A passes its day-60 adoption gate, they move to a
 > neutral domain at v1.0 (see [GOVERNANCE.md](GOVERNANCE.md)). See [`docs/FITNESS-REVIEW.md`](docs/FITNESS-REVIEW.md).
 
@@ -27,12 +27,10 @@ core, but it's three extra lines, so the quickstart includes it.
 ### 0. Install
 
 ```bash
-# Python 3.10+  (until PyPI: install from this repo)
-pip install "git+https://github.com/getvda-ai/rssa#subdirectory=packages/sdk-py"
+# Python 3.10+
+pip install rssa                     # extras: "rssa[langchain]", "rssa[crewai]"
 
-# or from a local clone:  pip install -e path/to/rssa/packages/sdk-py
-
-# Node 22.18+  (until npm: run the CLI straight from a clone)
+# Node 22.18+  (until @rss-a/sdk is on npm: run the CLI from a clone)
 git clone https://github.com/getvda-ai/rssa && cd rssa && npm install
 ./bin/rssa help          # Windows: bin\rssa help
 ```
@@ -148,9 +146,7 @@ marks entry text as untrusted data. Use the hosted endpoint, or run it locally:
 { "mcpServers": { "rssa": { "type": "http", "url": "https://hub.rssa.getvda.ai/mcp" } } }
 ```
 
-```bash
-npx @rss-a/sdk mcp --reader-card https://your-agent.example/.well-known/agent-card.json   # stdio
-```
+It is listed in the official MCP registry as `ai.getvda/rssa`.
 
 ## Live feeds
 
@@ -190,8 +186,8 @@ serves one merged feed. See [`demo/`](demo/) for a complete three-agent group, a
 | Path | What |
 |---|---|
 | [`spec/`](spec/) | The protocol. [`core.md`](spec/core.md) is the only required part; one file per module; [`presets.md`](spec/presets.md); the [RSS-E profile](spec/profiles/rss-e.md). |
-| [`packages/sdk-py`](packages/sdk-py) | Python SDK and CLI (`rssa` on PyPI, not yet published). |
-| [`packages/sdk-js`](packages/sdk-js) | TypeScript SDK and the validator CLI (`@rss-a/sdk` on npm, not yet published). Runs on Node, Deno, Bun and Workers. |
+| [`packages/sdk-py`](packages/sdk-py) | Python SDK and CLI ([`rssa` on PyPI](https://pypi.org/project/rssa/)), with LangChain/LangGraph and CrewAI tools. |
+| [`packages/sdk-js`](packages/sdk-js) | TypeScript SDK and the validator CLI (`@rss-a/sdk` on npm, coming soon). Runs on Node, Deno, Bun and Workers. |
 | [`hub/`](hub/) | The reference hub: a Cloudflare Worker. |
 | [`test-vectors/`](test-vectors/) | Canonical bytes and signatures, plus inputs that must be rejected. Both SDKs pass them. |
 | [`schemas/`](schemas/), [`registry/`](registry/) | JSON Schemas, Relax NG, and the registries of core types, modules and settings. |

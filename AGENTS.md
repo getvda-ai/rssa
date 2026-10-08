@@ -10,12 +10,13 @@ confusing, that is a bug in RSS-A, not in your work. Report it (see the end of t
 2. [`spec/core.md`](spec/core.md): the four rules and the card line.
 3. [`spec/sign.md`](spec/sign.md) §3–§6: what is signed. You won't implement it (the SDK does), but you need to know what breaks it.
 
-## Install (until 0.1 is on PyPI and npm: from a clone)
+## Install
 
 ```bash
+pip install rssa                          # Python SDK + `python -m rssa`
+# Validator CLI (Node 22.18+), until @rss-a/sdk is on npm, from a clone:
 git clone https://github.com/getvda-ai/rssa && cd rssa && npm install
-pip install -e ./packages/sdk-py          # Python SDK + `python -m rssa`
-bin/rssa validate <url>                   # validator (Node 22.18+); on Windows: bin\rssa.cmd
+bin/rssa validate <url>                   # on Windows: bin\rssa.cmd
 # TypeScript agents: npm run build, then  npm install <path-to-clone>/packages/sdk-js
 ```
 

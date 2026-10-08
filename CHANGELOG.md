@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1: public preview (2026-10-08)
+
+- **Published:** the repository is public, and `rssa` 0.1.1 is on PyPI. npm (`@rss-a/sdk`, `@rss-a/validate`) follows.
+- **MCP server:** read, verify and validate tools over Streamable HTTP (the reference hub's `/mcp`, listed in the
+  MCP registry as `ai.getvda/rssa`), and over stdio (`rssa mcp`).
+- **Python agent tools:** `rssa.tools`, with LangChain/LangGraph and CrewAI adapters (`rssa[langchain]`, `rssa[crewai]`).
+- **Support bot:** signing and validation issues get a deterministic diagnosis within seconds.
+
 ## Hub 0.2.0 (live 2026-10-08)
 
 - Fixes #9 (consistency), #13 (ping scans every group) and #14 (one cron for all groups).
