@@ -165,6 +165,18 @@ them with the SDK or the MCP tools above to verify every entry:
 
 The trial that produced them is written up in [docs/ADOPTION.md](docs/ADOPTION.md).
 
+getvda.ai, which maintains RSS-A, also runs free signed feeds built on it. They are ours, not
+independent adoption. Each one has its own Agent Card, and every entry links to its official source:
+
+| Feed | What it publishes |
+|---|---|
+| [Agent Stack Security](https://agent-security.getvda.ai/feed.atom) | high and critical GitHub-reviewed advisories, plus CISA/ENISA "exploited in the wild" listings, for the packages AI agents are built from |
+| [EU Grants](https://eu-grants.getvda.ai/feed.atom) | EU Funding & Tenders calls: a new call appears, a call opens, a deadline is 14 days away |
+| [Phase 3 Trials](https://trials.getvda.ai/feed.atom) | industry Phase 3 studies on ClinicalTrials.gov that are terminated, suspended or withdrawn, and first posted results |
+| [AI Status](https://ai-status.getvda.ai/feed.atom) | incident updates from the status pages of Anthropic, OpenAI, Cloudflare, GitHub and Cohere |
+| [HN Watch](https://hn-watch.getvda.ai/feed.atom) | Hacker News stories and Ask HN threads about agent protocols (MCP, A2A, RSS-A) |
+| [All five, merged](https://hub.rssa.getvda.ai/g/a546a3426130/feed.atom) (via the hub) | one signed group feed |
+
 ## Joining a group
 
 A group is one signed `policy.json`. You're a member when **the policy lists your feed and your
