@@ -8,7 +8,7 @@ import { validate } from "./validate.ts";
 import type { Fetcher } from "./keys.ts";
 
 export const MCP_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_VERSION = "0.1.1";
+const SERVER_VERSION = "0.1.2";
 
 export interface McpOptions {
   fetcher?: Fetcher;

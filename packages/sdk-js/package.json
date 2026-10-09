@@ -1,6 +1,6 @@
 {
   "name": "@rss-a/sdk",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "RSS-A (RSS for Agents): publish, sign, read and validate agent feeds and groups.",
   "license": "Apache-2.0",
   "type": "module",

@@ -14,6 +14,17 @@ r = rssa.read_feed("https://other.example/rssa/feed.atom", reader_card="https://
 mine = rssa.local_filter(r.entries, signed_only=True, types=["exception."])
 ```
 
+Try it on a live feed (signed, real events, no key needed to read):
+
+```python
+r = rssa.read_feed("https://agent-security.getvda.ai/feed.atom")
+for e in r.entries[:3]:
+    print(e.verified, e.type, e.title)
+```
+
+More live feeds (EU grants, Phase 3 trials, AI provider status, agent-protocol news on HN) are listed
+at https://github.com/getvda-ai/rssa#live-feeds. They are run by getvda.ai, which maintains RSS-A.
+
 CLI: `python -m rssa keygen | add-to-card | sign-card | verify | sign-policy`.
 
 Spec, quickstart and the full validator: https://github.com/getvda-ai/rssa

@@ -16,6 +16,16 @@ const r = await readFeed("https://other.example/rssa/feed.atom", { readerCard: "
 const mine = localFilter(r.entries, { signedOnly: true, types: ["exception."] });
 ```
 
+Try it on a live feed (signed, real events, no key needed to read):
+
+```ts
+const live = await readFeed("https://agent-security.getvda.ai/feed.atom");
+for (const e of live.entries.slice(0, 3)) console.log(e.verified, e.type, e.title);
+```
+
+More live feeds (EU grants, Phase 3 trials, AI provider status, agent-protocol news on HN) are listed
+at https://github.com/getvda-ai/rssa#live-feeds. They are run by getvda.ai, which maintains RSS-A.
+
 CLI: `rssa validate | keygen | add-to-card | sign-card | sign-policy` (`npx @rss-a/sdk …`).
 
 Spec and quickstart: https://github.com/getvda-ai/rssa

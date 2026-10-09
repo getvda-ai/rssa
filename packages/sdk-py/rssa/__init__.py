@@ -8,4 +8,4 @@ from .keys import Key, generate_key, key_from_jwk, key_from_seed, load_key, reso
 from .policy import CORE_TYPES, PRESETS, check_entry, effective_settings, roster_opml, sign_policy, verify_policy
 from .sign import content_hash, content_hash_input, entry_payload, sign_entry, verify_entry
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"

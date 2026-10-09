@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2: docs (2026-10-09)
+
+- `rssa` (PyPI) and `@rss-a/sdk` (npm): the package READMEs show a first read against a live signed feed, and
+  point to the live feeds list. No code changes. `@rss-a/validate` stays at 0.1.1.
+
 ## 0.1.1: public preview (2026-10-08)
 
 - **Published:** the repository is public; `rssa` 0.1.1 is on PyPI; `@rss-a/sdk` and `@rss-a/validate` 0.1.1 are on npm.
