@@ -299,3 +299,25 @@ test("identity log: a member cached before the log existed gets its known keys a
   assert.deepEqual(h.map((x: any) => x.change), ["first"]);
   assert.deepEqual(h[0].keys, [await thumbprint(g.keys[0].publicJwk)]);
 });
+
+test("a member that fails membership stays failing on later 304s, and is re-checked when its card is fixed (found live, 2026-10-10)", async () => {
+  const g = await buildGroup(2, 1, { etags: true });
+  setCard(g, 1, { groups: [] });
+  const { hub, tick } = setup(g);
+  const { id } = await hub.register(POLICY);
+  await hub.refresh(id);
+  const m1 = async () => (await get(hub, id, "status.json")).members.find((m: any) => m.feed === feedUrl(1));
+  assert.equal((await m1()).ok, false);
+  tick(5 * 60_000);
+  await hub.refresh(id);
+  const after = await m1();
+  assert.equal(after.ok, false, "a 304 does not make a non-member ok");
+  assert.equal(after.liveness, "failing");
+  assert.match(after.problem, /two-way membership/);
+  // The member fixes its card; the feed itself is unchanged.
+  setCard(g, 1, { groups: [POLICY] });
+  tick(16 * 60_000);
+  await hub.refresh(id);
+  assert.equal((await m1()).ok, true, "re-checked without waiting for the feed to change");
+});
+

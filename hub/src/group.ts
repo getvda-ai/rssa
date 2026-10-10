@@ -80,6 +80,9 @@ export interface Track { firstSeen: number; accepted: number; edits: number; hea
 export interface StoredEntry extends RssaEntry { acceptedAt: number; depth: number; root: string }
 export interface MemberStatus {
   feed: string; ok: boolean; problem?: string; etag?: string; lastModified?: string;
+  /** The last membership verdict (two-way, modules, cadence) and the notes that came with a pass. */
+  member?: boolean;
+  notes?: string;
   /** Entries waiting (future-dated or over the hub budget): the feed is refetched without a conditional GET until they clear. */
   held?: number;
   /** Hub budget window: its start and the entries accepted in it. */
@@ -473,7 +476,7 @@ export class Group {
     // So is a feed with held posts (future-dated or over the hub budget), so they are seen again.
     const sigrejFeeds = new Set(Object.values(sigrej).map((x) => x.feed));
     const unconditional = (feed: string) =>
-      (opts.forceCard && feed === opts.only) || !!f.members[feed]?.held ||
+      (opts.forceCard && feed === opts.only) || !!f.members[feed]?.held || f.members[feed]?.member === false ||
       (sigrejFeeds.has(feed) && (!f.cards[feed] || now - f.cards[feed].fetchedAt >= this.c.cardTtlMs));
 
     // Fetch member feeds concurrently (pool of FETCH_POOL).
@@ -491,7 +494,8 @@ export class Group {
           }
           const r = await this.c.fetch(feed, { headers });
           this.lastFetch.set(feed, now);
-          if (r.status === 304) { st.ok = true; bodies.set(feed, undefined); continue; }
+          // Unchanged feed: the last membership verdict stands (a 304 proves the feed, not the membership).
+          if (r.status === 304) { st.ok = st.member !== false; if (st.ok) st.problem = st.notes; bodies.set(feed, undefined); continue; }
           if (!r.ok) throw new Error(`feed GET returned ${r.status}`);
           const body = await r.text();
           if (body.length > LIMITS.feedBytes) throw new Error(`feed is ${body.length} bytes; limit ${LIMITS.feedBytes}`);
@@ -519,20 +523,20 @@ export class Group {
       // 2. Membership: two-way, required modules declared, cadence within the group's maxCadence.
       const pins = policy.members.find((x) => x.feed === feed)?.keys ?? [];
       const card = await this.card(feed, parsed.cardUrl, s, opts.forceCard && feed === opts.only, Array.isArray(pins) ? pins : []);
-      if ("error" in card) { st.ok = false; st.problem = card.error; continue; }
-      if (!card.groups.some((x) => groupRef.includes(x))) { st.ok = false; st.problem = "the member's Agent Card does not list this group (two-way membership)"; continue; }
+      if ("error" in card) { st.ok = st.member = false; st.problem = card.error; continue; }
+      if (!card.groups.some((x) => groupRef.includes(x))) { st.ok = st.member = false; st.problem = "the member's Agent Card does not list this group (two-way membership)"; continue; }
       const missing = (policy.requiredModules ?? []).filter((x) => !card.modules.includes(x));
-      if (missing.length) { st.ok = false; st.problem = `card does not declare required modules: ${missing.join(", ")}`; continue; }
+      if (missing.length) { st.ok = st.member = false; st.problem = `card does not declare required modules: ${missing.join(", ")}`; continue; }
       const cp = cadenceProblem(card.cadence, s);
-      if (cp) { st.ok = false; st.problem = cp; continue; }
-      st.ok = true;
+      if (cp) { st.ok = st.member = false; st.problem = cp; continue; }
+      st.ok = st.member = true;
       track(st);
       const notes: string[] = [];
       if (card.staleSince) notes.push(`identity stale since ${new Date(card.staleSince).toISOString()} (card unreachable; using last known key)`);
       if (card.forks?.length) notes.push(`key ${card.forks.join(", ")} announced two different successors; neither is trusted`);
       if (card.unannounced?.length) notes.push(`posts signed with unannounced key ${card.unannounced.join(", ")} are held (keyContinuity hold) until a rotation statement or an owner pin`);
       else if (card.keyChangedAt) notes.push(`keys changed at ${new Date(card.keyChangedAt).toISOString()} without a rotation statement`);
-      st.problem = notes.length ? notes.join("; ") : undefined;
+      st.problem = st.notes = notes.length ? notes.join("; ") : undefined;
       st.held = 0;
 
       const keys = this.verifyKeys(card);
