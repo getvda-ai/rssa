@@ -44,7 +44,7 @@ come from places where the design was ambiguous or would have produced
 
 **Changed 2026-10-10:** key-rotation statements were on this list. The maintainer pulled them forward into v0.2,
 together with liveness (cadence and heartbeats), group-wide rate caps, and the hub's identity log and track record,
-after an external reviewer asked about them. All are additive and optional (spec v0.2; the extension URI is unchanged).
+after Tercel asked about them in review. All are additive and optional (spec v0.2; the extension URI is unchanged).
 
 ## Open items for the maintainer (not code)
 

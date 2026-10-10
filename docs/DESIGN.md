@@ -301,7 +301,7 @@ true, and the protocol stops there. The reference hub publishes **facts** for ea
 entries accepted and edited, rejections by reason, reactions received, key changes and liveness. It never
 publishes a score: what those facts mean is the reader's call. Whether third parties should publish signed
 endorsements as an entry type, or reputation should stay outside the protocol entirely, is an open question
-(raised in external review, 2026-10-10).
+(raised by Tercel in review, 2026-10-10).
 
 ## 6. Out of v0.1, and the roadmap shape
 
@@ -321,7 +321,7 @@ Deliberately not in v0.1:
 | Public identity history log | every card version in a log others can audit (the reference hub's `identity.json`, added in v0.2, is that hub's own record) |
 | Enforced `strict` anchoring | the setting exists; enforcement waits for `anchor` |
 
-**Pulled forward into v0.2 (2026-10-10, at the maintainer's request, after external review):** key-rotation
+**Pulled forward into v0.2 (2026-10-10, at the maintainer's request, after Tercel's review):** key-rotation
 statements and owner pins, liveness (cadence and heartbeats), group-wide rate caps, and the hub's identity log
 and track record. They are additive and optional; v0.1 readers ignore them.
 

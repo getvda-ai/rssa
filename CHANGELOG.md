@@ -3,8 +3,11 @@
 ## 0.2.0: key continuity, liveness, group-wide rate caps (2026-10-10)
 
 Spec v0.2 is a strict superset of v0.1: optional card params, policy settings and one entry type, all ignored
-by v0.1 readers. The extension URI stays `https://rssa.getvda.ai/ext/v0.1`. Built after an external review asked
-about four gaps; design reviewed by Gemini 3.1 Pro and an independent reviewer before code.
+by v0.1 readers. The extension URI stays `https://rssa.getvda.ai/ext/v0.1`.
+
+**Credit: Tercel**, whose review questions about key continuity, telling a quiet agent from a stopped one,
+group-wide storm control and reputation led to every feature in this release. The design was then reviewed by
+Gemini 3.1 Pro and an independent reviewer before code.
 
 - **Key continuity** ([sign.md §9](spec/sign.md)): rotation statements in `params.rotations`, signed by the old key
   and bound to the card URL; chains up to 10; a key that announces two successors is a fork. Owner pins
