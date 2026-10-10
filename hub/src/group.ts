@@ -474,9 +474,10 @@ export class Group {
     // A feed holding posts rejected on their signature is fetched without a conditional GET once its
     // card is due for a refetch, so a key rotation reaches those posts even if the feed itself is unchanged.
     // So is a feed with held posts (future-dated or over the hub budget), so they are seen again.
+    // And so is a member without a passing membership verdict (including rows written before verdicts existed).
     const sigrejFeeds = new Set(Object.values(sigrej).map((x) => x.feed));
     const unconditional = (feed: string) =>
-      (opts.forceCard && feed === opts.only) || !!f.members[feed]?.held || f.members[feed]?.member === false ||
+      (opts.forceCard && feed === opts.only) || !!f.members[feed]?.held || f.members[feed]?.member !== true ||
       (sigrejFeeds.has(feed) && (!f.cards[feed] || now - f.cards[feed].fetchedAt >= this.c.cardTtlMs));
 
     // Fetch member feeds concurrently (pool of FETCH_POOL).

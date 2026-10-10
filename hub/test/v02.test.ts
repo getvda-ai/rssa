@@ -321,3 +321,19 @@ test("a member that fails membership stays failing on later 304s, and is re-chec
   assert.equal((await m1()).ok, true, "re-checked without waiting for the feed to change");
 });
 
+test("member rows written before membership verdicts existed are re-checked in full once", async () => {
+  const g = await buildGroup(2, 1, { etags: true });
+  setCard(g, 1, { groups: [] });
+  const { hub, tick } = setup(g);
+  const { id } = await hub.register(POLICY);
+  await hub.refresh(id);
+  // Simulate the previous hub version: no verdict stored, and a 304 had marked the member ok.
+  const st = (hub as any).group(id).full.members[feedUrl(1)];
+  delete st.member; delete st.notes; st.ok = true; st.problem = undefined;
+  tick(5 * 60_000);
+  await hub.refresh(id);
+  const m1 = (await get(hub, id, "status.json")).members.find((m: any) => m.feed === feedUrl(1));
+  assert.equal(m1.ok, false);
+  assert.match(m1.problem, /two-way membership/);
+});
+
