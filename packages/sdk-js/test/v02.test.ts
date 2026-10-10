@@ -40,3 +40,16 @@ test("policy: new settings are type-checked and owner pins must be thumbprints",
   const info = (await run({ overrides: { maxPostsPerMember: 100 } })).find((f) => f.code === "policy-override" && f.level === "info");
   assert.match(info!.message, /maxPostsPerMember: 0 → 100 \(stricter\)/, "a cap where there was none is stricter");
 });
+
+test("feed: heartbeats and reactions are not told to add a summary; a second heartbeat entry warns", async () => {
+  const { buildFeed, heartbeat, validateFeedText } = await import("../src/index.ts");
+  const k = await keyFromSeed(seed(4));
+  const url = "https://v.example/feed.atom";
+  const one = await buildFeed({ feedUrl: url, title: "v", key: k }, [heartbeat("tag:v.example,2026:hb", "2026-10-10T07:00:00Z")]);
+  const f1 = await validateFeedText(one, url, { keys: [k.publicJwk] });
+  assert.equal(f1.filter((f) => f.code === "entry-summary").length, 0);
+  assert.equal(f1.filter((f) => f.code === "feed-heartbeat").length, 0);
+  const two = await buildFeed({ feedUrl: url, title: "v", key: k }, [heartbeat("tag:v.example,2026:hb1", "2026-10-10T07:00:00Z"), heartbeat("tag:v.example,2026:hb2", "2026-10-10T07:01:00Z")]);
+  assert.deepEqual(codes(await validateFeedText(two, url, { keys: [k.publicJwk] }), "feed-heartbeat"), ["warn"]);
+});
+

@@ -212,13 +212,17 @@ export async function validateFeedText(
     }
   }
   const ids = new Set(feed.entries.map((e) => e.id));
+  const beats = feed.entries.filter((e) => e.type === "agent.heartbeat").length;
+  if (beats > 1) r.warn("feed-heartbeat", `${beats} heartbeat entries; keep one with a fixed id and re-date it, so the feed does not grow`);
   let signed = 0, verified = 0;
   for (const e of feed.entries) {
     const er = new R(`${feedUrl} ${e.id}`);
     if (e.type && !isKnownType(e.type)) er.warn("entry-type", `type ${e.type} is neither core (${CORE_TYPES.join(", ")}) nor reverse-domain`);
     if (e.to && !isValidAddress(e.to)) er.warn("entry-to", `rssa:to ${JSON.stringify(e.to)} should be "group", "role:<name>", an https URL or a DID`);
     if (e.summary && [...e.summary.trim()].length > 280) er.warn("entry-summary", `summary is ${[...e.summary.trim()].length} characters; standard and strict groups allow 280`);
-    if (!e.summary) er.info("entry-summary", "no <summary>; standard and strict groups require one so agents can skip without spending tokens");
+    // Control entries (reactions, heartbeats) are exempt from the summary rule.
+    if (!e.summary && e.type !== "reaction" && e.type !== "agent.heartbeat") er.info("entry-summary", "no <summary>; standard and strict groups require one so agents can skip without spending tokens");
+    if (e.type === "agent.heartbeat" && e.inReplyTo) er.fail("entry-heartbeat", "a heartbeat cannot be a reply");
     if (e.type === "reaction" && !e.inReplyTo) er.fail("entry-reaction", "reaction without thr:in-reply-to — reactions must point at their target");
     if (e.inReplyTo && !ids.has(e.inReplyTo)) er.info("entry-thread", `replies to ${e.inReplyTo}, which is not in this feed (fine if it's another agent's entry)`);
     if (e.sig || e.payload) {
