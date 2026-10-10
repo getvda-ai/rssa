@@ -839,10 +839,11 @@ export class Group {
         const keyContinuity = m.policy ? effectiveSettings(m.policy).keyContinuity : undefined;
         return j({
           group: m.policy?.group ?? m.policyUrl, keyContinuity,
-          members: Object.values(f.cards).map((c) => ({
-            feed: c.feed, card: c.cardUrl, keys: c.thumbs ?? [], unannounced: c.unannounced ?? [], forks: c.forks ?? [],
+          members: await Promise.all(Object.values(f.cards).map(async (c) => ({
+            // Cards cached before v0.2 have no thumbprints stored yet: derive them from the keys.
+            feed: c.feed, card: c.cardUrl, keys: c.thumbs ?? (await Promise.all(c.keys.map((k) => thumbprint(k)))), unannounced: c.unannounced ?? [], forks: c.forks ?? [],
             held: !!c.unannounced?.length, history: (c.history ?? []).map((h) => ({ ...h, at: new Date(h.at).toISOString() })),
-          })),
+          }))),
         });
       }
       if (req.method === "GET" && leaf === "members.json") {
@@ -861,10 +862,12 @@ export class Group {
           members: Object.values(f.members).map((st) => {
             const t = st.track;
             const h = f.cards[st.feed]?.history ?? [];
+            const mine = f.entries.filter((e) => e.sourceFeed === st.feed);
+            const firstSeen = t?.firstSeen ?? (mine.length ? Math.min(...mine.map((e) => e.acceptedAt ?? Date.parse(e.updated))) : undefined);
             return {
-              feed: st.feed, firstSeen: t && new Date(t.firstSeen).toISOString(),
+              feed: st.feed, firstSeen: firstSeen !== undefined && Number.isFinite(firstSeen) ? new Date(firstSeen).toISOString() : undefined,
               // Never fewer than the entries the hub still holds (tracks created before the backfill started at 0).
-              accepted: Math.max(t?.accepted ?? 0, f.entries.filter((e) => e.sourceFeed === st.feed).length), edits: t?.edits ?? 0, heartbeats: t?.heartbeats ?? 0, rejected: t?.rejected ?? {},
+              accepted: Math.max(t?.accepted ?? 0, mine.length), edits: t?.edits ?? 0, heartbeats: t?.heartbeats ?? 0, rejected: t?.rejected ?? {},
               reactionsReceived: received[st.feed] ?? {},
               keyChanges: { announced: h.filter((x) => x.change === "rotated" || x.change === "pinned").length, unannounced: h.filter((x) => x.change === "unannounced" || x.change === "held").length, forks: h.filter((x) => x.change === "fork").length },
               ...this.live(f, st.feed),
