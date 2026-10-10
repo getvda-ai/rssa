@@ -379,6 +379,8 @@ export class Group {
     next.forks = c.forks;
     const beforeThumbs = new Set(await Promise.all(before.map((k) => thumbprint(k))));
     const prevThumbs = prev?.thumbs ?? (await Promise.all((prev?.keys ?? []).map((k) => thumbprint(k))));
+    // Members that predate the identity log: their known keys are its first entry.
+    if (!next.history.length) next.history.push({ at: prev?.fetchedAt ?? now, keys: prevThumbs, change: "first" });
     const keysChanged = [...prevThumbs].sort().join() !== [...next.thumbs].sort().join();
     const newFork = c.forks.some((x) => !(prev?.forks ?? []).includes(x));
     const newKeys = next.thumbs.filter((t) => !beforeThumbs.has(t));

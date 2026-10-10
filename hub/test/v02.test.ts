@@ -282,3 +282,20 @@ test("pings for one URL are debounced: a burst costs one refetch", async () => {
   await ping();
   assert.equal(g.web.subrequests, 2, "after the gap, a ping fetches again");
 });
+
+test("identity log: a member cached before the log existed gets its known keys as the first entry", async () => {
+  const g = await buildGroup(1, 1);
+  const { hub, tick } = setup(g);
+  const { id } = await hub.register(POLICY);
+  await hub.refresh(id);
+  // Simulate a card cached by the previous hub version: no history, no trusted set.
+  const grp = (hub as any).group(id);
+  const card = grp.full.cards[feedUrl(0)];
+  delete card.history; delete card.trusted; delete card.thumbs;
+  tick(16 * 60_000);
+  await post(g, 0, -15);
+  await hub.refresh(id);
+  const h = (await get(hub, id, "identity.json")).members[0].history;
+  assert.deepEqual(h.map((x: any) => x.change), ["first"]);
+  assert.deepEqual(h[0].keys, [await thumbprint(g.keys[0].publicJwk)]);
+});
