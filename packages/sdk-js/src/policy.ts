@@ -172,12 +172,10 @@ export interface ThreadContext {
   /** Time (ms) of this feed's previous post in the given thread, if any. */
   lastPost(feed: string, root: string): number | undefined;
   /**
-   * Accepted posts (new ids; not reactions, heartbeats or edits) with `updated` in (fromMs, toMs]:
+   * Accepted posts (not reactions or heartbeats; an edit counts at its new `updated`) with `updated` in (fromMs, toMs]:
    * from one feed, or from the whole group when feed is undefined. Enables the rate caps.
    */
   postsIn?(feed: string | undefined, fromMs: number, toMs: number): number;
-  /** True when this id was already accepted (an edit): edits are not new posts and skip the caps. */
-  isEdit?(id: string): boolean;
   /** The checker's clock (ms). Enables the future-dated check. */
   now?(): number;
 }
@@ -234,8 +232,9 @@ export function checkEntry(e: RssaEntry, feed: string, s: Settings, ctx?: Thread
       add("too-fast", `posted ${Math.round((Date.parse(e.updated) - last) / 1000)}s after this agent's previous post in the thread; minInterval is ${s.minInterval}`);
     }
   }
-  if (ctx?.postsIn && e.type !== "reaction" && !ctx.isEdit?.(e.id) && (s.maxPostsPerMember || s.maxGroupPosts)) {
-    // Caps count new posts by `updated` in the window ending at this entry, so every reader gets the same answer.
+  if (ctx?.postsIn && e.type !== "reaction" && (s.maxPostsPerMember || s.maxGroupPosts)) {
+    // Caps count posts by `updated` in the window ending at this entry, so every reader gets the same answer.
+    // An edit counts too: a reader without history cannot tell an edit from a new post.
     const t = Date.parse(e.updated), from = t - durationMs(s.rateWindow);
     if (s.maxPostsPerMember && ctx.postsIn(feed, from, t) >= s.maxPostsPerMember) {
       add("member-rate", `this agent already has ${s.maxPostsPerMember} posts in the ${s.rateWindow} before this one (maxPostsPerMember)`);
@@ -272,6 +271,14 @@ export class PostLedger {
     let a = this.byFeed.get(feed);
     if (!a) this.byFeed.set(feed, (a = []));
     insertSorted(a, t);
+  }
+  /** Removes one post at time t (an edited entry's previous version). */
+  remove(feed: string, t: number) {
+    for (const a of [this.all, this.byFeed.get(feed)]) {
+      if (!a) continue;
+      const i = upperBound(a, t) - 1;
+      if (i >= 0 && a[i] === t) a.splice(i, 1);
+    }
   }
   /** Posts with time in (fromMs, toMs]. */
   count(feed: string | undefined, fromMs: number, toMs: number): number {

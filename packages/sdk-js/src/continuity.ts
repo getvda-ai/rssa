@@ -72,7 +72,7 @@ export async function checkContinuity(o: {
   }
   // Every key a statement could be signed by: trusted keys and the keys statements announce.
   const statements = (Array.isArray(o.rotations) ? o.rotations : []).slice(0, 50)
-    .filter((s) => s && typeof s.prev === "string" && typeof s.next?.x === "string" && typeof s.sig === "string" && typeof s.at === "string");
+    .filter((s) => s && typeof s === "object" && typeof s.prev === "string" && typeof s.next === "object" && typeof s.next?.x === "string" && typeof s.sig === "string" && typeof s.at === "string");
   const jwks = new Map(trusted);
   for (const s of statements) jwks.set(await thumbprint(s.next), publicOnly(s.next));
   // Valid edges prev → next: signed by the prev key.

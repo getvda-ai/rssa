@@ -75,7 +75,7 @@ test("controls: heartbeats, future-dated entries and the post caps give the expe
     const v = checkEntry(c.entry, c.feed, s, {
       depthOf: () => undefined, rootOf: () => undefined, lastPost: () => undefined,
       postsIn: (fd, a, b) => posts.filter(([pf, pt]: readonly [string, number]) => (fd === undefined || pf === fd) && pt > a && pt <= b).length,
-      isEdit: () => c.edit, now: () => Date.parse(f.now),
+      now: () => Date.parse(f.now),
     });
     assert.deepEqual(v.map((x) => x.code), c.codes, c.name);
   }

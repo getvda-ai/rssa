@@ -42,7 +42,7 @@ def test_controls_cases(c):
     posts = [(f, ts(u)) for f, u in c["posts"]]
     posts_in = lambda f, a, b: sum(1 for pf, pt in posts if (f is None or pf == f) and a < pt <= b)
     v = check_entry(entry, c["feed"], s, depth_of=lambda _: None, root_of=lambda _: None, last_post=lambda *_: None,
-                    posts_in=posts_in, is_edit=lambda _: c["edit"], now=ts(CTRL["now"]))
+                    posts_in=posts_in, now=ts(CTRL["now"]))
     assert [code for code, _ in v] == c["codes"]
 
 

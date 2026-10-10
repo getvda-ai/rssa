@@ -142,14 +142,14 @@ out("rotation.json", {
 const NOW = Date.parse("2026-10-10T12:00:00Z");
 const F1 = "https://a.example/feed.atom", F2 = "https://b.example/feed.atom";
 const min = (m: number) => new Date(NOW - m * 60_000).toISOString().replace(/\.\d{3}Z$/, "Z");
-const ctrl: Array<{ name: string; preset: "open" | "standard" | "strict"; overrides?: Record<string, unknown>; entry: Partial<RssaEntry>; feed?: string; posts?: Array<[string, string]>; edit?: boolean; codes: string[] }> = [
+const ctrl: Array<{ name: string; preset: "open" | "standard" | "strict"; overrides?: Record<string, unknown>; entry: Partial<RssaEntry>; feed?: string; posts?: Array<[string, string]>; codes: string[] }> = [
   { name: "heartbeat-under-strict", preset: "strict", entry: { type: "agent.heartbeat", updated: min(1) }, codes: [] },
   { name: "heartbeat-as-reply", preset: "standard", entry: { type: "agent.heartbeat", updated: min(1), inReplyTo: "urn:x" }, codes: ["heartbeat-reply"] },
   { name: "future-dated", preset: "standard", entry: { type: "brief.published", summary: "s", updated: min(-6) }, codes: ["future-dated"] },
   { name: "within-skew", preset: "standard", entry: { type: "brief.published", summary: "s", updated: min(-4) }, codes: [] },
   { name: "member-cap-reached", preset: "standard", overrides: { maxPostsPerMember: 2 }, entry: { type: "brief.published", summary: "s", updated: min(0) }, posts: [[F1, min(50)], [F1, min(10)], [F2, min(5)]], codes: ["member-rate"] },
   { name: "member-cap-window-is-exclusive", preset: "standard", overrides: { maxPostsPerMember: 2 }, entry: { type: "brief.published", summary: "s", updated: min(0) }, posts: [[F1, min(60)], [F1, min(10)]], codes: [] },
-  { name: "member-cap-edit", preset: "standard", overrides: { maxPostsPerMember: 2 }, entry: { type: "brief.published", summary: "s", updated: min(0) }, posts: [[F1, min(50)], [F1, min(10)]], edit: true, codes: [] },
+  { name: "member-cap-edit-counts", preset: "standard", overrides: { maxPostsPerMember: 2 }, entry: { type: "brief.published", summary: "s", updated: min(0) }, posts: [[F1, min(50)], [F1, min(10)]], codes: ["member-rate"] },
   { name: "member-cap-reaction", preset: "standard", overrides: { maxPostsPerMember: 2 }, entry: { type: "reaction", reaction: "ack", inReplyTo: "urn:x", updated: min(0) }, posts: [[F1, min(50)], [F1, min(10)]], codes: [] },
   { name: "group-cap-reached", preset: "standard", overrides: { maxGroupPosts: 3 }, entry: { type: "brief.published", summary: "s", updated: min(0) }, posts: [[F1, min(50)], [F2, min(10)], [F2, min(5)]], codes: ["group-rate"] },
   { name: "strict-defaults-member-cap", preset: "strict", overrides: { declaredTypes: ["brief.published"] }, entry: { type: "brief.published", summary: "s", to: "group", updated: min(0) }, posts: Array.from({ length: 12 }, (_, i) => [F1, min(55 - i * 4)] as [string, string]), codes: ["member-rate"] },
@@ -162,13 +162,13 @@ for (const c of ctrl) {
   const v = checkEntry(e, c.feed ?? F1, s, {
     depthOf: () => undefined, rootOf: () => undefined, lastPost: () => undefined,
     postsIn: (f, a, b) => ledger.filter(([lf, lt]) => (f === undefined || lf === f) && lt > a && lt <= b).length,
-    isEdit: () => !!c.edit, now: () => NOW,
+    now: () => NOW,
   });
   deepStrictEqual(v.map((x) => x.code), c.codes, `controls case ${c.name}`);
-  ctrlOut.push({ name: c.name, preset: c.preset, overrides: c.overrides ?? {}, feed: c.feed ?? F1, entry: e, posts: c.posts ?? [], edit: !!c.edit, codes: c.codes });
+  ctrlOut.push({ name: c.name, preset: c.preset, overrides: c.overrides ?? {}, feed: c.feed ?? F1, entry: e, posts: c.posts ?? [], codes: c.codes });
 }
 out("controls.json", {
-  description: "checkEntry for the v0.2 controls. `posts` are accepted [feed, updated] pairs (the window is (updated - rateWindow, updated]); `edit` says the id was already accepted; `now` is the reader's clock. Each case must give exactly `codes`.",
+  description: "checkEntry for the v0.2 controls. `posts` are accepted [feed, updated] pairs, edits included (the window is (updated - rateWindow, updated]); `now` is the reader's clock. Each case must give exactly `codes`.",
   now: new Date(NOW).toISOString(), cases: ctrlOut,
 });
 

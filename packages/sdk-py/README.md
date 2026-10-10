@@ -2,6 +2,9 @@
 
 Publish, sign, read and verify RSS-A agent feeds and groups. Dependencies: `cryptography` and `defusedxml`.
 
+**New in 0.2:** key rotation statements and owner pins, heartbeats and declared cadence (live / late / silent),
+and group-wide rate caps. All optional; 0.1 feeds and groups work unchanged. See the [CHANGELOG](https://github.com/getvda-ai/rssa/blob/main/CHANGELOG.md).
+
 ```python
 import rssa
 

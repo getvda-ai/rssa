@@ -58,7 +58,7 @@ def check_continuity(card_url: str, trusted: list[dict], current: list[dict], ro
         if thumbprint(k) in pin_set:
             tr[thumbprint(k)] = _public(k)
     statements = [s for s in (rotations if isinstance(rotations, list) else [])[:50]
-                  if isinstance(s, dict) and isinstance(s.get("prev"), str) and isinstance((s.get("next") or {}).get("x"), str)
+                  if isinstance(s, dict) and isinstance(s.get("prev"), str) and isinstance(s.get("next"), dict) and isinstance(s["next"].get("x"), str)
                   and isinstance(s.get("sig"), str) and isinstance(s.get("at"), str)]
     jwks = dict(tr)
     for s in statements:

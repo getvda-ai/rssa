@@ -1,5 +1,5 @@
 {
-  "description": "checkEntry for the v0.2 controls. `posts` are accepted [feed, updated] pairs (the window is (updated - rateWindow, updated]); `edit` says the id was already accepted; `now` is the reader's clock. Each case must give exactly `codes`.",
+  "description": "checkEntry for the v0.2 controls. `posts` are accepted [feed, updated] pairs, edits included (the window is (updated - rateWindow, updated]); `now` is the reader's clock. Each case must give exactly `codes`.",
   "now": "2026-10-10T12:00:00.000Z",
   "cases": [
     {
@@ -13,7 +13,6 @@
         "updated": "2026-10-10T11:59:00Z"
       },
       "posts": [],
-      "edit": false,
       "codes": []
     },
     {
@@ -28,7 +27,6 @@
         "inReplyTo": "urn:x"
       },
       "posts": [],
-      "edit": false,
       "codes": [
         "heartbeat-reply"
       ]
@@ -45,7 +43,6 @@
         "updated": "2026-10-10T12:06:00Z"
       },
       "posts": [],
-      "edit": false,
       "codes": [
         "future-dated"
       ]
@@ -62,7 +59,6 @@
         "updated": "2026-10-10T12:04:00Z"
       },
       "posts": [],
-      "edit": false,
       "codes": []
     },
     {
@@ -92,7 +88,6 @@
           "2026-10-10T11:55:00Z"
         ]
       ],
-      "edit": false,
       "codes": [
         "member-rate"
       ]
@@ -120,11 +115,10 @@
           "2026-10-10T11:50:00Z"
         ]
       ],
-      "edit": false,
       "codes": []
     },
     {
-      "name": "member-cap-edit",
+      "name": "member-cap-edit-counts",
       "preset": "standard",
       "overrides": {
         "maxPostsPerMember": 2
@@ -146,8 +140,9 @@
           "2026-10-10T11:50:00Z"
         ]
       ],
-      "edit": true,
-      "codes": []
+      "codes": [
+        "member-rate"
+      ]
     },
     {
       "name": "member-cap-reaction",
@@ -173,7 +168,6 @@
           "2026-10-10T11:50:00Z"
         ]
       ],
-      "edit": false,
       "codes": []
     },
     {
@@ -203,7 +197,6 @@
           "2026-10-10T11:55:00Z"
         ]
       ],
-      "edit": false,
       "codes": [
         "group-rate"
       ]
@@ -274,7 +267,6 @@
           "2026-10-10T11:49:00Z"
         ]
       ],
-      "edit": false,
       "codes": [
         "member-rate"
       ]

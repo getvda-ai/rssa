@@ -78,10 +78,9 @@ def check_entry(e: Entry, feed: str, s: dict, depth_of: Optional[Callable[[str],
                 root_of: Optional[Callable[[str], Optional[str]]] = None,
                 last_post: Optional[Callable[[str, str], Optional[float]]] = None,
                 posts_in: Optional[Callable[[Optional[str], float, float], int]] = None,
-                is_edit: Optional[Callable[[str], bool]] = None,
                 now: Optional[float] = None) -> list[tuple[str, str]]:
     """Policy checks for one entry. Returns (code, message) violations; empty means allowed.
-    posts_in(feed or None, from, to) counts accepted new posts with updated in (from, to] (rate caps);
+    posts_in(feed or None, from, to) counts accepted posts and edits with updated in (from, to] (rate caps);
     now (epoch seconds) enables the future-dated check."""
     v: list[tuple[str, str]] = []
     if now is not None and _ts(e.updated) > now + FUTURE_SKEW_SECONDS:
@@ -132,8 +131,9 @@ def check_entry(e: Entry, feed: str, s: dict, depth_of: Optional[Callable[[str],
         if gap and last is not None and t - last < gap:
             v.append(("too-fast", f"posted {int(t - last)}s after this agent's previous post in the thread; minInterval is {s['minInterval']}"))
     caps = s.get("maxPostsPerMember", 0) or s.get("maxGroupPosts", 0)
-    if posts_in and caps and e.type != "reaction" and not (is_edit and is_edit(e.id)):
-        # Caps count new posts by `updated` in the window ending at this entry, so every reader gets the same answer.
+    if posts_in and caps and e.type != "reaction":
+        # Caps count posts by `updated` in the window ending at this entry, so every reader gets the same answer.
+        # An edit counts too: a reader without history cannot tell an edit from a new post.
         t = _ts(e.updated)
         start = t - duration_seconds(s["rateWindow"])
         if s.get("maxPostsPerMember") and posts_in(feed, start, t) >= s["maxPostsPerMember"]:

@@ -14,7 +14,7 @@ about four gaps; design reviewed by Gemini 3.1 Pro and an independent reviewer b
   (one fixed id, re-dated). States live / late / silent / undeclared / failing in `readGroup`/`read_group` and the
   hub's `status.json`. Policy setting `maxCadence`.
 - **Group-wide rate caps:** `rateWindow`, `maxPostsPerMember`, `maxGroupPosts`. Counted by `updated` and decided in
-  one order, so hubs and hubless readers agree. Edits, reactions and heartbeats are not counted. `strict` now caps
+  one order, so hubs and hubless readers agree. Edits count at their new time; reactions and heartbeats do not. `strict` now caps
   12 posts per member and 60 per group per hour; `open` and `standard` are unchanged (no caps).
 - **Future-dated entries:** held (not rejected) when more than 5 minutes ahead of the reader's clock.
 - **Hub:** new entries from all members are decided in one order per refresh; a budget of 120 accepted entries per
@@ -22,7 +22,7 @@ about four gaps; design reviewed by Gemini 3.1 Pro and an independent reviewer b
   debounced per URL (10 s); `identity.json` (the identity log) and `members.json` (track record: facts, no score).
 - **Validator:** checks `cadence`, verifies `rotations` and flags forks, type-checks the new settings and owner pins.
 - **Test vectors:** `rotation.json` and `controls.json`, with hand-written expectations both SDKs must meet.
-- Packages: `rssa` 0.2.0 (PyPI), `@rss-a/sdk` 0.2.0 and `@rss-a/validate` 0.2.0 (npm).
+- Packages: `rssa` 0.2.0 (PyPI). `@rss-a/sdk` and `@rss-a/validate` 0.2.0 are built; npm publication pending.
 
 ## 0.1.2: docs (2026-10-09)
 

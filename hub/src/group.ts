@@ -34,6 +34,11 @@ const BUDGET_WINDOW_MS = 3_600_000;
 export const HEARTBEAT_MIN_MS = 5 * 60_000;
 /** Pings for one URL closer together than this are dropped; the next ping or the poll picks the change up. */
 export const PING_GAP_MS = 10_000;
+/**
+ * Future-dated entries are held until their time, but only this far ahead: beyond it they are rejected
+ * (a stricter local policy), so one far-future entry cannot keep its feed on unconditional fetches.
+ */
+export const FUTURE_HOLD_MS = 24 * 3_600_000;
 /** Liveness slack: the hub polls every 5 minutes, so a signal can reach it up to one poll late. */
 export const LIVENESS_SLACK_MS = 10 * 60_000;
 const IDENTITY_HISTORY = 20;
@@ -274,6 +279,7 @@ export class Group {
     // Debounce: a burst of pings for one URL costs one refetch (anyone can ping a member's URL).
     const t = this.c.now();
     if (t - (this.lastPing.get(url) ?? -Infinity) < PING_GAP_MS) return Promise.resolve([]);
+    if (this.lastPing.size > 1000) this.lastPing.clear();
     this.lastPing.set(url, t);
     const p = this.serial(async () => {
       this.pendingPings.delete(url);
@@ -443,7 +449,11 @@ export class Group {
     const { decided, sigrej, react } = f;
     let reactionsChanged = false;
     const floor = m.floor ? Date.parse(m.floor) : undefined;
-    const track = (st: MemberStatus) => (st.track ??= { firstSeen: now, accepted: 0, edits: 0, heartbeats: 0, rejected: {} });
+    // firstSeen: for members that predate the track record, their oldest retained entry.
+    const track = (st: MemberStatus) => (st.track ??= {
+      firstSeen: Math.min(now, ...f.entries.filter((e) => e.sourceFeed === st.feed).map((e) => e.acceptedAt ?? Date.parse(e.updated))),
+      accepted: 0, edits: 0, heartbeats: 0, rejected: {},
+    });
     const count = (st: MemberStatus, codes: string[]) => { const t = track(st); for (const c of new Set(codes)) t.rejected[c] = (t.rejected[c] ?? 0) + 1; };
     const logRejection = (r: Rejection) => {
       m.rejected.unshift(r);
@@ -551,22 +561,30 @@ export class Group {
       }
       // 3b. Group policy.
       const edit = known.has(e.id);
+      // An edit is counted at its new time only, as a reader without history sees it.
+      const before = known.get(e.id);
+      if (before) ledger.remove(feed, Date.parse(before.updated));
+      const restore = () => { if (before) ledger.add(feed, Date.parse(before.updated)); };
       const violations = checkEntry(e, feed, s, {
         depthOf: (x) => depth.get(x),
         rootOf: (x) => root.get(x),
         lastPost: (fd, r) => last.get(`${fd} ${r}`),
         postsIn: (fd, a, b) => ledger.count(fd, a, b),
-        isEdit: (x) => known.has(x),
         now: () => now,
       });
       // Future-dated entries wait (not final): they become valid when their time comes.
-      if (violations.some((v) => v.code === "future-dated")) { st.held = (st.held ?? 0) + 1; continue; }
+      if (violations.length) restore();
+      if (violations.some((v) => v.code === "future-dated")) {
+        if (Date.parse(e.updated) - now > FUTURE_HOLD_MS) reject(e, feed, [`updated ${e.updated} is more than 24 hours ahead of the hub's clock`], ["future-dated"]);
+        else st.held = (st.held ?? 0) + 1;
+        continue;
+      }
       if (violations.length) { reject(e, feed, violations.map((v) => v.message), violations.map((v) => v.code)); continue; }
       // 3c. The hub's own budget, by its clock: over it, entries wait for the next hour (not final).
       const heartbeat = e.type === HEARTBEAT;
       if (heartbeat && st.lastHeartbeatAt !== undefined && now - st.lastHeartbeatAt < HEARTBEAT_MIN_MS) continue;
       if (!st.budget || now - st.budget.start >= BUDGET_WINDOW_MS) st.budget = { start: now, n: 0 };
-      if (!heartbeat && st.budget.n >= MEMBER_BUDGET) { st.held = (st.held ?? 0) + 1; continue; }
+      if (!heartbeat && st.budget.n >= MEMBER_BUDGET) { st.held = (st.held ?? 0) + 1; restore(); continue; }
       // 3d. Only then, signatures.
       if (s.signatures === "required" || e.sig) {
         const v = await verifyEntry(e, selfUrl ?? feed, keys);
@@ -575,6 +593,7 @@ export class Group {
           // Not final: the member's keys may have rotated since the hub last fetched its card.
           if (!sigrej[e.id]) count(st, ["signature"]);
           sigrej[e.id] = { updated: e.updated, keys: keySet, feed };
+          restore();
           const held = card.unannounced?.length ? ["held: signed with a key that has no rotation statement or owner pin (keyContinuity hold)"] : [];
           logRejection({ id: e.id, feed, at: now, reasons: [...held, ...v.checks.filter((c) => !c.ok).map((c) => c.message), ...(bindFeedOk ? [] : [`feed rel=self ${selfUrl} differs from the member URL ${feed}`])] });
           continue;
@@ -602,7 +621,7 @@ export class Group {
       depth.set(e.id, d);
       root.set(e.id, r);
       last.set(`${feed} ${r}`, Date.parse(e.updated));
-      if (!edit) ledger.add(feed, Date.parse(e.updated));
+      ledger.add(feed, Date.parse(e.updated));
       const stored: StoredEntry = { ...e, sourceFeed: feed, sourceCard: card.cardUrl, acceptedAt: now, depth: d, root: r };
       known.set(e.id, stored);
       track(st)[edit ? "edits" : "accepted"]++;

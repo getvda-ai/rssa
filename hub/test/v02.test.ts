@@ -44,7 +44,7 @@ async function post(g: G, i: number, minutesAgo: number, extra: Partial<RssaEntr
   return signed;
 }
 
-test("maxPostsPerMember: the 4th post in the window is rejected; reactions, heartbeats and edits are not counted", async () => {
+test("maxPostsPerMember: the 4th post in the window is rejected; reactions and heartbeats are not counted, edits are", async () => {
   const g = await buildGroup(2, 0);
   await setPolicy(g, { overrides: { maxPostsPerMember: 3, rateWindow: "PT1H" } });
   const { hub } = setup(g);
@@ -58,16 +58,20 @@ test("maxPostsPerMember: the 4th post in the window is rejected; reactions, hear
   const st = await get(hub, id, "status.json");
   assert.ok(st.rejected.some((r: any) => r.id === over.id && /maxPostsPerMember/.test(r.reasons.join())), "4th post rejected by the member cap");
   assert.deepEqual(await get(hub, id, "reactions.json"), { [p[0].id]: { ack: 1 } }, "the reaction is tallied, not capped");
-  // An edit of a counted post is not a new post.
+  // An edit counts at its new time and no longer at its old one (as a reader without history sees it):
   const i = g.entries[0].findIndex((e) => e.id === p[1].id);
   g.entries[0][i] = await signEntry({ ...p[1], updated: iso(NOW - 5 * 60_000), summary: "edited", payload: undefined, sig: undefined }, feedUrl(0), g.keys[0]);
   publish(g.web, 0, g.entries[0]);
-  assert.deepEqual(await hub.refresh(id), [p[1].id], "the edit is accepted");
+  assert.deepEqual(await hub.refresh(id), [p[1].id], "the edit moves p1 from -40 to -5 minutes");
+  // so the window ending at -4 minutes now holds -50, -30 and -5: full.
+  const late = await post(g, 0, 4);
+  assert.deepEqual(await hub.refresh(id), [], "the edit took a slot");
+  assert.ok((await get(hub, id, "status.json")).rejected.some((r: any) => r.id === late.id));
   const tr = (await get(hub, id, "members.json")).members.find((m: any) => m.feed === feedUrl(0));
   assert.equal(tr.accepted, 3);
   assert.equal(tr.edits, 1);
   assert.equal(tr.heartbeats, 1);
-  assert.equal(tr.rejected["member-rate"], 1);
+  assert.equal(tr.rejected["member-rate"], 2);
   assert.deepEqual(tr.reactionsReceived, { ack: 1 }, "reactions received on its retained entries");
 });
 
@@ -101,6 +105,27 @@ test("a future-dated post is held, not rejected, and accepted when its time come
   tick(61 * 60_000);
   assert.deepEqual(await hub.refresh(id), [e.id]);
   assert.equal((await get(hub, id, "status.json")).members[0].held, undefined);
+});
+
+test("a post dated more than 24 hours ahead is rejected, not held, so its feed goes back to conditional GETs", async () => {
+  const g = await buildGroup(1, 0, { etags: true });
+  let t = NOW;
+  const conditional: boolean[] = [];
+  const fetch = (url: string, init?: RequestInit) => {
+    if (url === feedUrl(0)) conditional.push(new Headers(init?.headers).has("if-none-match"));
+    return g.web.fetcher(url, init);
+  };
+  const hub = new Hub({ store: memoryStore(), fetch, now: () => t, adminToken: "x", baseUrl: "https://hub.test" });
+  const tick = (ms: number) => { t += ms; };
+  const { id } = await hub.register(POLICY);
+  const e = await post(g, 0, -48 * 60);
+  assert.deepEqual(await hub.refresh(id), []);
+  const st = await get(hub, id, "status.json");
+  assert.equal(st.members[0].held, undefined);
+  assert.ok(st.rejected.some((r: any) => r.id === e.id && /24 hours ahead/.test(r.reasons.join())));
+  tick(5 * 60_000);
+  await hub.refresh(id);
+  assert.equal(conditional.at(-1), true, "the next poll is a conditional GET again");
 });
 
 test(`the hub budget: past ${MEMBER_BUDGET} accepted entries in an hour (by the hub's clock), the rest wait for the next hour`, async () => {
