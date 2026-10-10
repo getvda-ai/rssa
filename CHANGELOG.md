@@ -25,8 +25,9 @@ Gemini 3.1 Pro and an independent reviewer before code.
   debounced per URL (10 s); `identity.json` (the identity log) and `members.json` (track record: facts, no score).
 - **Validator:** checks `cadence`, verifies `rotations` and flags forks, type-checks the new settings and owner pins.
 - **Test vectors:** `rotation.json` and `controls.json`, with hand-written expectations both SDKs must meet.
-- Reference hub: live at hub.rssa.getvda.ai (2026-10-10). Packages `rssa`, `@rss-a/sdk` and `@rss-a/validate` 0.2.0 are built and
-  verified; publication to PyPI and npm is pending.
+- **Published 2026-10-10:** `rssa` 0.2.0 (PyPI), `@rss-a/sdk` and `@rss-a/validate` 0.2.0 (npm); reference hub live at hub.rssa.getvda.ai.
+- **Accepted on a live fleet:** tested on three GOSCE agents and a synthetic member (strict group, real key rotation, caps,
+  future-dated entries, held/pinned/fork). The run found five hub/validator bugs, all fixed with regression tests before release notes were final.
 
 ## 0.1.2: docs (2026-10-09)
 
