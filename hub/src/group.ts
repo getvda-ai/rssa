@@ -140,6 +140,8 @@ export interface GroupConfig {
   base: () => string;
   /** Updates the hub's member index (#13). */
   reindex?: (id: string, before: string[], after: string[]) => Promise<void>;
+  /** Asks for a wake-up within `ms` (a Durable Object alarm in production), to catch up on debounced pings. */
+  soon?: (ms: number) => void | Promise<void>;
   /** Hands new content to delivery (a Queue in production). */
   notify?: (m: DeliveryMessage) => Promise<void>;
 }
@@ -168,6 +170,8 @@ export class Group {
   private pendingPings = new Map<string, Promise<string[]>>();
   private lastFetch = new Map<string, number>();
   private lastPing = new Map<string, number>();
+  /** URLs whose ping was debounced: refetched on the next wake-up (flushTrailing), so a burst costs one late fetch, not a lost one. */
+  private trailing = new Set<string>();
   /** Counters for tests and the perf harness. */
   readonly stats = { refreshes: 0 };
 
@@ -281,7 +285,11 @@ export class Group {
     if (queued) return queued;
     // Debounce: a burst of pings for one URL costs one refetch (anyone can ping a member's URL).
     const t = this.c.now();
-    if (t - (this.lastPing.get(url) ?? -Infinity) < PING_GAP_MS) return Promise.resolve([]);
+    if (t - (this.lastPing.get(url) ?? -Infinity) < PING_GAP_MS) {
+      if (this.trailing.size < 100) this.trailing.add(url);
+      void this.c.soon?.(PING_GAP_MS);
+      return Promise.resolve([]);
+    }
     if (this.lastPing.size > 1000) this.lastPing.clear();
     this.lastPing.set(url, t);
     const p = this.serial(async () => {
@@ -297,6 +305,18 @@ export class Group {
     });
     this.pendingPings.set(url, p);
     return p;
+  }
+
+  /** Refetches the URLs whose pings were debounced. Returns false when there were none. */
+  async flushTrailing(): Promise<boolean> {
+    if (!this.trailing.size) return false;
+    const urls = [...this.trailing];
+    this.trailing.clear();
+    for (const u of urls) {
+      this.lastPing.delete(u);
+      await this.ping(u);
+    }
+    return true;
   }
 
   // ---------------- member cards and keys ----------------

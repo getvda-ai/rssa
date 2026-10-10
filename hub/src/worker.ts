@@ -73,8 +73,19 @@ export class GroupDO extends DurableObject<Env> {
       base: () => base(this.env),
       reindex: (gid, before, after) => new Directory(kv(this.env.RSSA)).reindex(gid, before, after),
       notify: async (m) => { await this.env.DELIVERY.send(m); },
+      soon: (ms) => this.armSoon(ms),
     }));
   }
+
+  /** Brings the alarm forward to within `ms` (never pushes it back). */
+  private async armSoon(ms: number) {
+    const at = Date.now() + ms;
+    const cur = await this.ctx.storage.getAlarm();
+    if (cur === null || cur > at) await this.ctx.storage.setAlarm(at);
+  }
+
+  /** When the last full poll ran (in memory: after an eviction the next alarm polls in full). */
+  private lastFull = 0;
 
   /** Alarms only, never timers: an object with a pending timer cannot hibernate and is billed while idle. */
   private async arm(delayMs = POLL_MS) {
@@ -98,8 +109,15 @@ export class GroupDO extends DurableObject<Env> {
   async alarm() {
     const meta = await this.rows.get("meta", "");
     if (!meta) return;
-    try { await this.group((JSON.parse(meta) as { id: string }).id).refresh(); } catch { /* recorded on the group; next poll retries */ }
-    await this.ctx.storage.setAlarm(Date.now() + POLL_MS);
+    const g = this.group((JSON.parse(meta) as { id: string }).id);
+    // An early wake-up for debounced pings refetches only those URLs; the full poll keeps its own rhythm.
+    let flushed = false;
+    try { flushed = await g.flushTrailing(); } catch { /* the full poll below or the next one catches up */ }
+    if (!flushed || Date.now() - this.lastFull >= POLL_MS - 1000) {
+      try { await g.refresh(); } catch { /* recorded on the group; next poll retries */ }
+      this.lastFull = Date.now();
+    }
+    await this.ctx.storage.setAlarm(Math.max(this.lastFull + POLL_MS, Date.now() + 1000));
   }
 }
 

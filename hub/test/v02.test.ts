@@ -283,6 +283,29 @@ test("pings for one URL are debounced: a burst costs one refetch", async () => {
   assert.equal(g.web.subrequests, 2, "after the gap, a ping fetches again");
 });
 
+test("a debounced ping is not lost: the hub asks to wake soon and refetches that URL then (found live, 2026-10-10)", async () => {
+  const g = await buildGroup(2, 1);
+  let t = NOW;
+  const wakes: number[] = [];
+  const hub = new Hub({ store: memoryStore(), fetch: g.web.fetcher, now: () => t, adminToken: "x", baseUrl: "https://hub.test" });
+  const { id } = await hub.register(POLICY);
+  await hub.refresh(id);
+  const grp = (hub as any).group(id);
+  grp.c.soon = (ms: number) => { wakes.push(ms); };
+  const ping = () => hub.websub(new URLSearchParams({ "hub.mode": "publish", "hub.url": feedUrl(0) }));
+  await ping();
+  // A second post 2 seconds later: its ping is debounced.
+  t += 2000;
+  const e = await post(g, 0, 0);
+  await ping();
+  assert.equal(wakes.length, 1, "asked for an early wake-up");
+  assert.ok(!(await feedXml(hub, id)).includes(e.id), "not fetched yet");
+  t += wakes[0];
+  assert.equal(await grp.flushTrailing(), true);
+  assert.ok((await feedXml(hub, id)).includes(e.id), "fetched on the wake-up, not at the next poll");
+  assert.equal(await grp.flushTrailing(), false, "nothing left");
+});
+
 test("identity log: a member cached before the log existed gets its known keys as the first entry", async () => {
   const g = await buildGroup(1, 1);
   const { hub, tick } = setup(g);
