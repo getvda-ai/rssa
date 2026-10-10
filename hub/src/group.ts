@@ -451,11 +451,13 @@ export class Group {
     const { decided, sigrej, react } = f;
     let reactionsChanged = false;
     const floor = m.floor ? Date.parse(m.floor) : undefined;
-    // firstSeen: for members that predate the track record, their oldest retained entry.
-    const track = (st: MemberStatus) => (st.track ??= {
-      firstSeen: Math.min(now, ...f.entries.filter((e) => e.sourceFeed === st.feed).map((e) => e.acceptedAt ?? Date.parse(e.updated))),
-      accepted: 0, edits: 0, heartbeats: 0, rejected: {},
-    });
+    // Members that predate the track record start from what the hub still holds: their oldest
+    // retained entry for firstSeen, and their retained entries for accepted.
+    const track = (st: MemberStatus) => {
+      if (st.track) return st.track;
+      const mine = f.entries.filter((e) => e.sourceFeed === st.feed);
+      return (st.track = { firstSeen: Math.min(now, ...mine.map((e) => e.acceptedAt ?? Date.parse(e.updated))), accepted: mine.length, edits: 0, heartbeats: 0, rejected: {} });
+    };
     const count = (st: MemberStatus, codes: string[]) => { const t = track(st); for (const c of new Set(codes)) t.rejected[c] = (t.rejected[c] ?? 0) + 1; };
     const logRejection = (r: Rejection) => {
       m.rejected.unshift(r);
