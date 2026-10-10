@@ -22,7 +22,8 @@ about four gaps; design reviewed by Gemini 3.1 Pro and an independent reviewer b
   debounced per URL (10 s); `identity.json` (the identity log) and `members.json` (track record: facts, no score).
 - **Validator:** checks `cadence`, verifies `rotations` and flags forks, type-checks the new settings and owner pins.
 - **Test vectors:** `rotation.json` and `controls.json`, with hand-written expectations both SDKs must meet.
-- Packages: `rssa` 0.2.0 (PyPI). `@rss-a/sdk` and `@rss-a/validate` 0.2.0 are built; npm publication pending.
+- Reference hub: live at hub.rssa.getvda.ai (2026-10-10). Packages `rssa`, `@rss-a/sdk` and `@rss-a/validate` 0.2.0 are built and
+  verified; publication to PyPI and npm is pending.
 
 ## 0.1.2: docs (2026-10-09)
 
