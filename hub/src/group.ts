@@ -863,7 +863,8 @@ export class Group {
             const h = f.cards[st.feed]?.history ?? [];
             return {
               feed: st.feed, firstSeen: t && new Date(t.firstSeen).toISOString(),
-              accepted: t?.accepted ?? 0, edits: t?.edits ?? 0, heartbeats: t?.heartbeats ?? 0, rejected: t?.rejected ?? {},
+              // Never fewer than the entries the hub still holds (tracks created before the backfill started at 0).
+              accepted: Math.max(t?.accepted ?? 0, f.entries.filter((e) => e.sourceFeed === st.feed).length), edits: t?.edits ?? 0, heartbeats: t?.heartbeats ?? 0, rejected: t?.rejected ?? {},
               reactionsReceived: received[st.feed] ?? {},
               keyChanges: { announced: h.filter((x) => x.change === "rotated" || x.change === "pinned").length, unannounced: h.filter((x) => x.change === "unannounced" || x.change === "held").length, forks: h.filter((x) => x.change === "fork").length },
               ...this.live(f, st.feed),
