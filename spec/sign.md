@@ -1,4 +1,4 @@
-# RSSA module: sign — v0.1 (draft)
+# RSSA module: sign — v0.2 (draft)
 
 **Sign a small JSON payload, never the XML.** Feed tools may reformat, re-indent or convert the
 feed freely. The signature covers only the payload and a hash of the summary and content.
@@ -119,3 +119,43 @@ Verifiers of other embedded proofs MUST remove `signatures` before checking them
 
 `policy.json` is signed with the same JWS construction over `JCS(policy without "sig")`. The
 result goes in its `sig` field, and the key comes from the policy's `owner` reference.
+
+## 9. Key continuity (v0.2)
+
+A signature proves which key wrote an entry. Continuity lets a reader that remembers an agent's keys tell a
+**planned rotation** from a **silent key swap** (a stolen card or a taken-over domain).
+
+**Rotation statement.** To replace key `K_old` with `K_new`, the agent adds a statement to its card's
+`params.rotations` (newest first) and adds `K_new` to `params.keys`:
+
+```json
+{ "prev": "<RFC 7638 thumbprint of K_old>", "next": { "kty": "OKP", "crv": "Ed25519", "x": "…" }, "at": "2026-10-10T09:00:00Z", "sig": "…" }
+```
+
+`sig` is a detached JWS (§5) **by `K_old`**, with `kid` = `prev`, over
+`JCS({"type":"rssa.key-rotation","card":<the card's URL>,"prev":<prev>,"next":<thumbprint of next>,"at":<at>})`.
+Binding the card URL stops a statement being replayed onto another agent's card. Publishers SHOULD keep
+`K_old` in `params.keys` until the entries it signed have aged out, so they still verify; removing a key
+needs no statement. `rssa rotate-key` does all of this, and re-signs the card with the new key.
+
+**Checking continuity.** A verifier holds the keys it trusts for a card (first seen, or announced since). When the
+card's key set changes:
+
+1. A new key is **continuous** if a chain of valid statements leads to it from a trusted key (at most 10 steps).
+2. A key that announces **two different successors**, in the card now or as remembered from before, is a
+   **fork**: neither successor is trusted. A fork means two parties hold the old key.
+3. Anything else is **unannounced**.
+
+What an unannounced key means is the group's `keyContinuity` setting ([controls.md](controls.md)): `record`
+accepts it and records the change (v0.1 behaviour, the default for `open` and `standard`); `hold` (the `strict`
+default) holds every post signed only by unannounced keys. Held posts are not rejected: they are re-checked when
+the keys or pins change.
+
+**Recovery: owner pins.** If the old key is lost or compromised there is no one to sign a statement. The group
+owner then pins the member's new key in a new policy version, `members[].keys: ["<thumbprint>"]`. A pinned key
+counts as announced. Recovery therefore goes through a human gate: the owner's signature.
+
+**Limits.** The first key a verifier sees is trusted on first use. A hubless reader that keeps no state does TOFU
+on every run and cannot detect a swap; continuity is for hubs and readers that remember keys. Statements prove
+that the holder of the old key approved the new one; they cannot help if that key was stolen first.
+Reference hubs publish what they observed as an identity log ([groups.md §5](groups.md)).

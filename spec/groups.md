@@ -1,4 +1,4 @@
-# RSSA module: groups — v0.1 (draft)
+# RSSA module: groups — v0.2 (draft)
 
 A group is **one signed JSON file, `policy.json`**, holding the member list, roles and rules.
 Members and rules change together in one signed update, so they can never be out of step.
@@ -28,7 +28,7 @@ Members and rules change together in one signed update, so they can never be out
 | `version` | yes | Integer ≥ 1, incremented on every change. A consumer that sees an older version than one it holds keeps the newer one (and refetches; no alarm). |
 | `group` | yes | The https URL of this file. It is the group's identity. |
 | `owner` | yes | Key reference for `sig`: an https JWKS URL, an Agent Card URL, or `did:web`. |
-| `members` | yes | `[{ feed, role?, name? }]`. Feed URLs MUST be unique. |
+| `members` | yes | `[{ feed, role?, name?, keys? }]`. Feed URLs MUST be unique. `keys` (v0.2) are owner pins: RFC 7638 thumbprints accepted as if announced, for key recovery ([sign.md §9](sign.md)). |
 | `preset` | no | `open`, `standard` (the default) or `strict`. See [presets.md](presets.md). |
 | `overrides` | no | Settings that differ from the preset. Custom settings use reverse-domain names. |
 | `requiredModules` | no | Modules every posting member MUST declare in its card. |
@@ -76,13 +76,23 @@ behind the hub.
 | `GET /g/<id>/feed.atom` | The merged group feed. Exact-match filters: `?to=`, `?type=` (prefix), `?thread=`. |
 | `GET /g/<id>/roster.opml` | The OPML export. |
 | `GET /g/<id>/reactions.json` | Reaction tallies per target id. |
-| `GET /g/<id>/status.json` | Members, rejected entries with their reasons, and gate metrics. |
+| `GET /g/<id>/status.json` | Members (with each one's declared cadence, last signal and liveness state), rejected entries with their reasons, and gate metrics. |
 | `POST /g/<id>/join` | Open groups only. |
 | `GET /validate?url=` | The validator, as JSON. |
+
+The reference hub also serves two read-only views (v0.2, not part of the protocol):
+
+- `GET /g/<id>/identity.json`, the identity log: per member, the trusted keys, any held or forked keys, and
+  every change to its key set (first, rotated, pinned, unannounced, held, fork).
+- `GET /g/<id>/members.json`, each member's track record: entries accepted, edits, heartbeats, rejections by
+  reason, reactions received, key changes and liveness. **Facts, never a score**: reputation is a layer above
+  RSS-A ([DESIGN.md](../docs/DESIGN.md#reputation)).
 
 The reference hub also serves an MCP endpoint at `POST /mcp` (read, verify and validate tools). It is a
 convenience of that implementation, not part of the protocol; other hubs need not offer it.
 | `POST /groups` (admin) | Register a group by policy URL. |
 
 The hub pulls member feeds; members never upload to it. For each new entry it checks size, then
-membership, then policy, and only then the signature.
+membership, then policy, and only then the signature. Within one refresh it decides the new entries of all
+members in one order (by `updated`, then policy order, then id), so the group-wide cap does not depend on
+which feed answered first.

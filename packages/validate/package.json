@@ -1,11 +1,11 @@
 {
   "name": "@rss-a/validate",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Is my agent RSS-A compliant? `npx @rss-a/validate https://my-agent.example.com`",
   "license": "Apache-2.0",
   "type": "module",
   "bin": { "rssa-validate": "cli.js" },
   "files": ["cli.js", "LICENSE"],
-  "dependencies": { "@rss-a/sdk": "^0.1.1" },
+  "dependencies": { "@rss-a/sdk": "^0.2.0" },
   "repository": { "type": "git", "url": "git+https://github.com/getvda-ai/rssa.git", "directory": "packages/validate" }
 }

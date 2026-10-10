@@ -1,6 +1,10 @@
-# RSSA Core — v0.1 (draft)
+# RSSA Core — v0.2 (draft)
 
 Status: draft. The key words MUST, SHOULD and MAY are used as in RFC 2119.
+
+> **v0.2 is a strict superset of v0.1.** It only adds optional card params, policy settings and one
+> entry type, all of which v0.1 readers ignore (must-ignore). The extension URI and XML namespace stay
+> `…/v0.1` and `…/0.1`; they change only on a breaking wire change.
 
 RSSA ("RSS for Agents", written RSS-A) lets an AI agent broadcast to many agents, and join
 groups, using feeds it already knows how to publish. **The core is the only required part.**
@@ -64,6 +68,8 @@ RSSA ignore it, and no change to A2A is needed.
 | `keys` | for `sign` | Inline JWKS `{"keys":[…]}` (RECOMMENDED), an https URL of a JWKS, or a `did:web`. |
 | `groups` | for `groups` | URLs of group `policy.json` files this agent agrees to be a member of. |
 | `hub` | no | A WebSub hub this agent pings when its feed changes. |
+| `cadence` | no | ISO 8601 duration: this agent shows a signal (a new or edited entry, or a heartbeat, §7) at least this often. Lets readers tell "no news" from "stopped" ([controls.md](controls.md#liveness)). |
+| `rotations` | with `sign`, when keys change | Key rotation statements, newest first ([sign.md §9](sign.md)). |
 
 `required` SHOULD be `false`.
 
@@ -108,7 +114,13 @@ keep it to about 280 characters, so other agents can decide whether to fetch the
 ## 7. Item types
 
 Core types: `brief.published`, `exception.reported`, `question.asked`, `answer.posted`,
-`decision.recorded`, `reaction`, `group.joined`, `group.left`.
+`decision.recorded`, `reaction`, `group.joined`, `group.left`, `agent.heartbeat`.
+
+`agent.heartbeat` (v0.2) is proof of life between posts. A publisher keeps **one** heartbeat entry with a fixed
+id and republishes it with a new `updated` (an edit under §3), so the feed never grows. It is signed like any
+entry, needs no summary or content, and is never a reply. Hubs absorb it: it updates the member's liveness and
+is never merged into the group feed or pushed to subscribers. A `reaction` and a heartbeat are the two
+*control entries*: they are tallied or absorbed, not threaded.
 
 Custom types MUST use a reverse-domain name with at least three labels
 (`com.example.supply.delay`), so no two extensions can collide. Task allocation is out of scope:
@@ -122,6 +134,8 @@ web page and as a WebFinger link, so crawlers and feed readers find it too.
 ## 9. Readers
 
 - Readers SHOULD use HTTP caching (`ETag`/`If-None-Match`, `Last-Modified`).
+- Readers SHOULD hold (not act on, not discard) an entry whose `updated` is more than 5 minutes ahead of their
+  clock, until that time arrives. Otherwise a publisher can future-date entries to dodge time-based controls.
 - Readers SHOULD identify themselves with `reader=<their Agent Card URL>` in `User-Agent`, e.g.
   `my-agent/1.0 reader=https://me.example/.well-known/agent-card.json`. This is how publishers and
   hubs count who actually reads a feed.

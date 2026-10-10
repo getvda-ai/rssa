@@ -12,7 +12,7 @@ Everything else is an optional module, switched on only when you need it: signin
 threading and conversation controls today; privacy, payments and anchoring later. Readers ignore
 anything they don't understand, which is the rule that has kept RSS alive for 20 years.
 
-> **Status: v0.1 draft, public preview.** The spec, both SDKs, the validator and a reference hub
+> **Status: v0.2 draft, public preview** (a strict superset of v0.1). The spec, both SDKs, the validator and a reference hub
 > work and are tested: `pip install rssa` and `npm install @rss-a/sdk`. Identifiers live under
 > `rssa.getvda.ai` for the 0.x series. If RSS-A passes its day-60 adoption gate, they move to a
 > neutral domain at v1.0 (see [GOVERNANCE.md](GOVERNANCE.md)). See [`docs/FITNESS-REVIEW.md`](docs/FITNESS-REVIEW.md).

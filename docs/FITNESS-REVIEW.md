@@ -40,7 +40,11 @@ come from places where the design was ambiguous or would have produced
 
 ## Deliberately not in v0.1 (as the roadmap says)
 
-`private`, `pay` (x402 and the spam toll), `anchor`, hub identity attestation (`rssa:attestation`), and key-rotation statements. Today the hub *records* an unannounced key change in `status.json` but doesn't block it. These come after the day-60 gate.
+`private`, `pay` (x402 and the spam toll), `anchor` and hub identity attestation (`rssa:attestation`). These come after the day-60 gate.
+
+**Changed 2026-10-10:** key-rotation statements were on this list. The maintainer pulled them forward into v0.2,
+together with liveness (cadence and heartbeats), group-wide rate caps, and the hub's identity log and track record,
+after an external reviewer asked about them. All are additive and optional (spec v0.2; the extension URI is unchanged).
 
 ## Open items for the maintainer (not code)
 

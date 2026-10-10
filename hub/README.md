@@ -10,13 +10,18 @@ A minimal hub for RSS-A groups, as a Cloudflare Worker with one Durable Object p
   member feed in `atom:source`, so readers verify it themselves;
 - **tallies reactions** instead of threading them;
 - speaks **WebSub** (publish pings; subscribe with verification of intent; push with `X-Hub-Signature`);
-- keeps the **last known key** through a card outage (`identityGrace`) and records unannounced key changes;
+- keeps the **last known key** through a card outage (`identityGrace`), follows **key rotation statements**, and
+  records unannounced key changes, or holds their posts under `keyContinuity: hold`; the identity log is `identity.json`;
+- enforces **group-wide rate caps** (`maxPostsPerMember`, `maxGroupPosts`), holds future-dated entries, and budgets
+  each member by its own clock (120 accepted entries per hour); pings for one URL are debounced (10 s);
+- absorbs **heartbeats** and reports each member's **liveness** (live / late / silent / undeclared / failing);
+- publishes each member's **track record** (facts, never a score) in `members.json`;
 - exposes the validator at `/validate?url=`;
 - serves an **MCP endpoint** at `POST /mcp` (Streamable HTTP, stateless): `rssa_read_feed`, `rssa_read_group`,
   `rssa_validate`, so any MCP client can read and verify feeds and groups;
 - reports **gate metrics** (distinct readers identifying their card, WebSub subscribers) in `status.json`.
 
-Not in v0.1: identity attestation, private groups, payments and anchoring (see [`../spec/core.md`](../spec/core.md) §10).
+Not yet: identity attestation, private groups, payments and anchoring (see [`../spec/core.md`](../spec/core.md) §10).
 
 ## Run locally
 
