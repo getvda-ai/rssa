@@ -496,8 +496,11 @@ export class Group {
     // So is a feed with held posts (future-dated or over the hub budget), so they are seen again.
     // And so is a member without a passing membership verdict (including rows written before verdicts existed).
     const sigrejFeeds = new Set(Object.values(sigrej).map((x) => x.feed));
+    // The owner changed a member's pins: re-evaluate its keys now, even if its feed is unchanged.
+    const pinsOf = (feed: string) => { const k = policy.members.find((x) => x.feed === feed)?.keys; return Array.isArray(k) ? [...k].sort().join(",") : ""; };
+    const pinsChanged = (feed: string) => !!f.cards[feed] && (f.cards[feed].pins ?? "") !== pinsOf(feed);
     const unconditional = (feed: string) =>
-      (opts.forceCard && feed === opts.only) || !!f.members[feed]?.held || f.members[feed]?.member !== true ||
+      (opts.forceCard && feed === opts.only) || !!f.members[feed]?.held || f.members[feed]?.member !== true || pinsChanged(feed) ||
       (sigrejFeeds.has(feed) && (!f.cards[feed] || now - f.cards[feed].fetchedAt >= this.c.cardTtlMs));
 
     // Fetch member feeds concurrently (pool of FETCH_POOL).

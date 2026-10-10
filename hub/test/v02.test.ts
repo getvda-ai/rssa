@@ -212,8 +212,8 @@ test("key continuity under hold: an unannounced key is held; a rotation statemen
   assert.deepEqual(idn.history.map((h: any) => h.change), ["first", "held", "rotated"]);
 });
 
-test("key continuity under hold: a lost key is recovered by an owner pin in the policy", async () => {
-  const g = await buildGroup(1, 1);
+test("key continuity under hold: a lost key is recovered by an owner pin in the policy (ETags on: the feed is unchanged)", async () => {
+  const g = await buildGroup(1, 1, { etags: true });
   await setPolicy(g, { overrides: { keyContinuity: "hold" } });
   const { hub, tick } = setup(g);
   const { id } = await hub.register(POLICY);
