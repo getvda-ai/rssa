@@ -2,8 +2,10 @@
 // is stable; CI regenerates and fails on any diff, and the Python SDK verifies every vector.
 
 import { writeFileSync } from "node:fs";
+import { deepStrictEqual } from "node:assert";
 import {
-  canonicalize, contentHash, contentHashInput, entryPayload, hex, keyFromSeed, signDetached, signEntry, signPolicy, thumbprint, utf8,
+  PRESETS, checkContinuity, checkEntry, canonicalize, contentHash, contentHashInput, entryPayload, hex, keyFromSeed, rotationStatement,
+  signDetached, signEntry, signPolicy, thumbprint, utf8, type RssaEntry,
 } from "../packages/sdk-js/src/index.ts";
 
 const seed = (n: number) => Uint8Array.from({ length: 32 }, (_, i) => (i * 7 + n) & 0xff);
@@ -89,4 +91,85 @@ out("policy.json", {
   policy,
   canonicalUnsigned: canonicalize(unsignedPolicy),
 });
+// 5. Key rotation statements and continuity (sign.md §9). The expected results are written by hand;
+// the JS implementation is asserted against them here, and the Python SDK against the file.
+const [kA, kB, kC, kD] = await Promise.all([11, 12, 13, 14].map((n) => keyFromSeed(seed(n))));
+const card = "https://agent.example.com/.well-known/agent-card.json";
+const at = "2026-10-10T09:00:00Z";
+const AB = await rotationStatement(card, kA, kB.publicJwk, at);
+const BC = await rotationStatement(card, kB, kC.publicJwk, at);
+const AD = await rotationStatement(card, kA, kD.publicJwk, at);
+const wrongCard = await rotationStatement("https://other.example/.well-known/agent-card.json", kA, kB.publicJwk, at);
+const t = { A: await thumbprint(kA.publicJwk), B: await thumbprint(kB.publicJwk), C: await thumbprint(kC.publicJwk), D: await thumbprint(kD.publicJwk) };
+const pub = { A: kA.publicJwk, B: kB.publicJwk, C: kC.publicJwk, D: kD.publicJwk };
+type K = keyof typeof pub;
+const cases: Array<{ name: string; trusted: K[]; current: K[]; rotations: unknown[]; pins?: K[]; seen?: Partial<Record<K, K>>; continuous: K[]; unannounced: K[]; forks: K[] }> = [
+  { name: "announced", trusted: ["A"], current: ["B"], rotations: [AB], continuous: ["B"], unannounced: [], forks: [] },
+  { name: "chain", trusted: ["A"], current: ["C"], rotations: [BC, AB], continuous: ["C"], unannounced: [], forks: [] },
+  { name: "unchanged", trusted: ["A"], current: ["A"], rotations: [], continuous: ["A"], unannounced: [], forks: [] },
+  { name: "silent-change", trusted: ["A"], current: ["D"], rotations: [], continuous: [], unannounced: ["D"], forks: [] },
+  { name: "fork", trusted: ["A"], current: ["B"], rotations: [AB, AD], continuous: [], unannounced: ["B"], forks: ["A"] },
+  { name: "fork-remembered", trusted: ["A"], current: ["D"], rotations: [AD], seen: { A: "B" }, continuous: [], unannounced: ["D"], forks: ["A"] },
+  { name: "owner-pin", trusted: ["A"], current: ["D"], rotations: [], pins: ["D"], continuous: ["D"], unannounced: [], forks: [] },
+  { name: "bad-signature", trusted: ["A"], current: ["B"], rotations: [{ ...AB, sig: AD.sig }], continuous: [], unannounced: ["B"], forks: [] },
+  { name: "wrong-card", trusted: ["A"], current: ["B"], rotations: [wrongCard], continuous: [], unannounced: ["B"], forks: [] },
+  { name: "signer-not-trusted", trusted: ["D"], current: ["C"], rotations: [BC], continuous: [], unannounced: ["C"], forks: [] },
+];
+const rotationCases = [];
+for (const c of cases) {
+  const r = await checkContinuity({
+    cardUrl: card, trusted: c.trusted.map((k) => pub[k]), current: c.current.map((k) => pub[k]), rotations: c.rotations as any,
+    pins: c.pins?.map((k) => t[k]), seen: c.seen && Object.fromEntries(Object.entries(c.seen).map(([a, b]) => [t[a as K], t[b as K]])),
+  });
+  const want = { continuous: c.continuous.map((k) => t[k]), unannounced: c.unannounced.map((k) => t[k]), forks: c.forks.map((k) => t[k]) };
+  deepStrictEqual({ continuous: r.continuous, unannounced: r.unannounced, forks: r.forks }, want, `rotation case ${c.name}`);
+  rotationCases.push({
+    name: c.name, trusted: c.trusted.map((k) => pub[k]), current: c.current.map((k) => pub[k]), rotations: c.rotations,
+    ...(c.pins ? { pins: c.pins.map((k) => t[k]) } : {}), ...(c.seen ? { seen: Object.fromEntries(Object.entries(c.seen).map(([a, b]) => [t[a as K], t[b as K]])) } : {}),
+    expect: want,
+  });
+}
+out("rotation.json", {
+  description: "Key rotation statements (sign.md §9). `statement` must be reproduced byte for byte from privateJwks (Ed25519 is deterministic); every case must give `expect`.",
+  card, at,
+  privateJwks: { A: kA.privateJwk, B: kB.privateJwk, C: kC.privateJwk, D: kD.privateJwk },
+  thumbprints: t,
+  statement: { from: "A", to: "B", signedInput: canonicalize({ type: "rssa.key-rotation", card, prev: t.A, next: t.B, at }), value: AB },
+  cases: rotationCases,
+});
+
+// 6. Controls added in v0.2: heartbeats, future-dated entries and the post caps. Expected codes are hand-written.
+const NOW = Date.parse("2026-10-10T12:00:00Z");
+const F1 = "https://a.example/feed.atom", F2 = "https://b.example/feed.atom";
+const min = (m: number) => new Date(NOW - m * 60_000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const ctrl: Array<{ name: string; preset: "open" | "standard" | "strict"; overrides?: Record<string, unknown>; entry: Partial<RssaEntry>; feed?: string; posts?: Array<[string, string]>; edit?: boolean; codes: string[] }> = [
+  { name: "heartbeat-under-strict", preset: "strict", entry: { type: "agent.heartbeat", updated: min(1) }, codes: [] },
+  { name: "heartbeat-as-reply", preset: "standard", entry: { type: "agent.heartbeat", updated: min(1), inReplyTo: "urn:x" }, codes: ["heartbeat-reply"] },
+  { name: "future-dated", preset: "standard", entry: { type: "brief.published", summary: "s", updated: min(-6) }, codes: ["future-dated"] },
+  { name: "within-skew", preset: "standard", entry: { type: "brief.published", summary: "s", updated: min(-4) }, codes: [] },
+  { name: "member-cap-reached", preset: "standard", overrides: { maxPostsPerMember: 2 }, entry: { type: "brief.published", summary: "s", updated: min(0) }, posts: [[F1, min(50)], [F1, min(10)], [F2, min(5)]], codes: ["member-rate"] },
+  { name: "member-cap-window-is-exclusive", preset: "standard", overrides: { maxPostsPerMember: 2 }, entry: { type: "brief.published", summary: "s", updated: min(0) }, posts: [[F1, min(60)], [F1, min(10)]], codes: [] },
+  { name: "member-cap-edit", preset: "standard", overrides: { maxPostsPerMember: 2 }, entry: { type: "brief.published", summary: "s", updated: min(0) }, posts: [[F1, min(50)], [F1, min(10)]], edit: true, codes: [] },
+  { name: "member-cap-reaction", preset: "standard", overrides: { maxPostsPerMember: 2 }, entry: { type: "reaction", reaction: "ack", inReplyTo: "urn:x", updated: min(0) }, posts: [[F1, min(50)], [F1, min(10)]], codes: [] },
+  { name: "group-cap-reached", preset: "standard", overrides: { maxGroupPosts: 3 }, entry: { type: "brief.published", summary: "s", updated: min(0) }, posts: [[F1, min(50)], [F2, min(10)], [F2, min(5)]], codes: ["group-rate"] },
+  { name: "strict-defaults-member-cap", preset: "strict", overrides: { declaredTypes: ["brief.published"] }, entry: { type: "brief.published", summary: "s", to: "group", updated: min(0) }, posts: Array.from({ length: 12 }, (_, i) => [F1, min(55 - i * 4)] as [string, string]), codes: ["member-rate"] },
+];
+const ctrlOut = [];
+for (const c of ctrl) {
+  const s = { ...PRESETS[c.preset], ...(c.overrides ?? {}) } as any;
+  const e = { id: "urn:uuid:00000000-0000-4000-8000-0000000000aa", ...c.entry } as RssaEntry;
+  const ledger = (c.posts ?? []).map(([f, u]) => [f, Date.parse(u)] as const);
+  const v = checkEntry(e, c.feed ?? F1, s, {
+    depthOf: () => undefined, rootOf: () => undefined, lastPost: () => undefined,
+    postsIn: (f, a, b) => ledger.filter(([lf, lt]) => (f === undefined || lf === f) && lt > a && lt <= b).length,
+    isEdit: () => !!c.edit, now: () => NOW,
+  });
+  deepStrictEqual(v.map((x) => x.code), c.codes, `controls case ${c.name}`);
+  ctrlOut.push({ name: c.name, preset: c.preset, overrides: c.overrides ?? {}, feed: c.feed ?? F1, entry: e, posts: c.posts ?? [], edit: !!c.edit, codes: c.codes });
+}
+out("controls.json", {
+  description: "checkEntry for the v0.2 controls. `posts` are accepted [feed, updated] pairs (the window is (updated - rateWindow, updated]); `edit` says the id was already accepted; `now` is the reader's clock. Each case must give exactly `codes`.",
+  now: new Date(NOW).toISOString(), cases: ctrlOut,
+});
+
 console.log(`wrote test-vectors (kid ${key.kid}, thumbprint ok: ${(await thumbprint(key.publicJwk)) === key.kid})`);

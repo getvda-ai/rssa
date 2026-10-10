@@ -1,6 +1,7 @@
 // The one Agent Card line: an A2A extension under capabilities.extensions.
 
 import type { Jwks } from "./keys.ts";
+import type { RotationStatement } from "./continuity.ts";
 
 export const EXT_URI = "https://rssa.getvda.ai/ext/v0.1";
 export const EXT_PREFIX = "https://rssa.getvda.ai/ext/";
@@ -15,6 +16,10 @@ export interface RssaParams {
   groups?: string[];
   /** Inline JWKS, an https URL to a JWKS, or a did:web. Required by the sign module. */
   keys?: Jwks | string;
+  /** Key rotation statements, newest first, each signed by the key it replaces (sign.md §9). */
+  rotations?: RotationStatement[];
+  /** ISO 8601 duration: this agent shows a signal (an entry or a heartbeat) at least this often. */
+  cadence?: string;
 }
 
 export interface RssaExtension {
@@ -30,6 +35,8 @@ export function cardExtension(params: RssaParams): RssaExtension {
   if (params.hub) p.hub = params.hub;
   if (params.groups?.length) p.groups = params.groups;
   if (params.keys) p.keys = params.keys;
+  if (params.rotations?.length) p.rotations = params.rotations;
+  if (params.cadence) p.cadence = params.cadence;
   return { uri: EXT_URI, description: "RSSA: this agent's feed and modules", required: false, params: p };
 }
 

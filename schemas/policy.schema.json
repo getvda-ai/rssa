@@ -15,7 +15,8 @@
       "type": "array",
       "items": {
         "type": "object", "required": ["feed"],
-        "properties": { "feed": { "type": "string", "pattern": "^https://" }, "role": { "type": "string" }, "name": { "type": "string" } }
+        "properties": { "feed": { "type": "string", "pattern": "^https://" }, "role": { "type": "string" }, "name": { "type": "string" },
+          "keys": { "type": "array", "description": "Owner pins: RFC 7638 thumbprints accepted as if announced (sign.md §9).", "items": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }, "uniqueItems": true } }
       }
     },
     "preset": { "enum": ["open", "standard", "strict"] },
@@ -34,7 +35,12 @@
         "membership": { "enum": ["open", "owner-approves"] },
         "anchoring": { "enum": ["none", "optional", "required"] },
         "hub": { "enum": ["optional", "required"] },
-        "identityGrace": { "type": "string", "pattern": "^P(\\d+D)?(T(\\d+H)?(\\d+M)?(\\d+S)?)?$" }
+        "identityGrace": { "type": "string", "pattern": "^P(\\d+D)?(T(\\d+H)?(\\d+M)?(\\d+S)?)?$" },
+        "rateWindow": { "type": "string", "pattern": "^P(\\d+D)?(T(\\d+H)?(\\d+M)?(\\d+S)?)?$" },
+        "maxPostsPerMember": { "type": "integer", "minimum": 0 },
+        "maxGroupPosts": { "type": "integer", "minimum": 0 },
+        "keyContinuity": { "enum": ["record", "hold"] },
+        "maxCadence": { "anyOf": [{ "const": "" }, { "type": "string", "pattern": "^P(\\d+D)?(T(\\d+H)?(\\d+M)?(\\d+S)?)?$" }] }
       },
       "propertyNames": { "pattern": "^([a-zA-Z]+|[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*){2,})$" }
     },

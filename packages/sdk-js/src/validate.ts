@@ -4,7 +4,11 @@ import { canonicalize, strictParse, utf8 } from "./canonical.ts";
 import { EXT_PREFIX, EXT_URI, MODULES, cardModules, findRssa } from "./card.ts";
 import { parseFeed, type ParsedFeed } from "./feed.ts";
 import { getJson, resolveKeys, signDetached, verifyDetached, type Fetcher, type PublicJwk, type RssaKey } from "./keys.ts";
-import { CORE_TYPES, PRESETS, REVERSE_DOMAIN, effectiveSettings, isKnownType, isValidAddress, presetDistance, verifyPolicy, type GroupPolicy } from "./policy.ts";
+import {
+  CORE_TYPES, PRESETS, REVERSE_DOMAIN, cadenceProblem, durationMs, effectiveSettings, isKnownType, isValidAddress, presetDistance, verifyPolicy,
+  type GroupPolicy,
+} from "./policy.ts";
+import { checkContinuity, type RotationStatement } from "./continuity.ts";
 import { verifyEntry } from "./sign.ts";
 import { USER_AGENT, keysForFeed } from "./agent.ts";
 
@@ -77,6 +81,8 @@ export async function validateCard(card: any, cardUrl: string, o: ValidateOption
   }
   for (const g of p.groups ?? []) if (!isHttpUrl(g)) r.fail("card-groups", `params.groups entry ${JSON.stringify(g)} is not an https URL`);
   if (p.hub && !isHttpUrl(p.hub)) r.fail("card-hub", `params.hub ${JSON.stringify(p.hub)} is not an https URL`);
+  checkCadence(r, p.cadence);
+  await checkRotations(r, p.rotations, cardUrl, keys);
   if (o.deep === false) return r.findings;
 
   // Feed, checked against what the card promises.
@@ -104,6 +110,38 @@ export async function validateCard(card: any, cardUrl: string, o: ValidateOption
     findings.push(...gr.findings);
   }
   return findings;
+}
+
+/** params.cadence: the agent's promise to show a signal (an entry or a heartbeat) at least this often. */
+function checkCadence(r: R, cadence: unknown) {
+  if (cadence === undefined) {
+    r.info("card-cadence", "no params.cadence: readers cannot tell a quiet agent from a stopped one", 'Declare how often you post or send a heartbeat, e.g. "cadence": "PT1H", and publish an agent.heartbeat entry between posts.');
+    return;
+  }
+  let ms: number;
+  try { ms = durationMs(String(cadence)); } catch { r.fail("card-cadence", `params.cadence ${JSON.stringify(cadence)} is not an ISO 8601 duration (e.g. PT1H, P1D)`); return; }
+  if (typeof cadence !== "string" || !ms) { r.fail("card-cadence", "params.cadence must be a non-zero ISO 8601 duration string"); return; }
+  if (ms < 5 * 60_000) r.warn("card-cadence", `cadence ${cadence} is finer than hubs poll (5 minutes); heartbeats that often only cost writes`);
+  else r.pass("card-cadence", `promises a signal at least every ${cadence}`);
+}
+
+/** params.rotations: each statement must verify, and no key may announce two successors. */
+async function checkRotations(r: R, rotations: unknown, cardUrl: string, keys: PublicJwk[]) {
+  if (rotations === undefined) return;
+  if (!Array.isArray(rotations)) { r.fail("card-rotations", "params.rotations must be an array of rotation statements"); return; }
+  const list = rotations as RotationStatement[];
+  const bad = list.filter((x) => !x || typeof x.prev !== "string" || typeof x.next?.x !== "string" || typeof x.sig !== "string" || typeof x.at !== "string");
+  if (bad.length) r.fail("card-rotations", `${bad.length} rotation statement(s) are not {prev, next, at, sig}`, "Make them with `rotationStatement` / `rotation_statement` or `rssa rotate-key`.");
+  // Without history the validator knows only the card's keys and the keys the statements announce.
+  const known = [...keys, ...list.filter((x) => x?.next?.x).map((x) => x.next)];
+  const c = await checkContinuity({ cardUrl, trusted: known, current: keys, rotations: list });
+  for (const pr of c.problems) r.fail("card-rotations", pr);
+  if (!c.problems.length && !bad.length) {
+    const verified = c.edges.length;
+    const unverifiable = list.length - bad.length - verified;
+    if (verified) r.pass("card-rotations", `${verified} rotation statement(s) verify`);
+    if (unverifiable) r.info("card-rotations", `${unverifiable} rotation statement(s) are signed by keys the card no longer publishes; only readers that remember those keys can check them`);
+  }
 }
 
 /** Signs an Agent Card using A2A's native `signatures` field (JWS over the RFC 8785 canonical card). */
@@ -220,6 +258,18 @@ export async function validatePolicyText(text: string, policyUrl: string, o: Val
   for (const k of Object.keys(p)) if (!KNOWN_POLICY_FIELDS.has(k) && !REVERSE_DOMAIN.test(k)) r.warn("policy-field", `unknown field "${k}"; custom fields must use a reverse-domain name (com.example.${k})`);
   for (const k of Object.keys(p.overrides ?? {})) if (!(k in PRESETS.standard) && !REVERSE_DOMAIN.test(k)) r.warn("policy-override", `unknown setting "${k}"; custom settings must use a reverse-domain name`);
   for (const m of p.requiredModules ?? []) if (!(MODULES as readonly string[]).includes(m) && !REVERSE_DOMAIN.test(m)) r.warn("policy-module", `unknown required module ${m}`);
+  const o2 = (p.overrides ?? {}) as Record<string, unknown>;
+  for (const k of ["maxPostsPerMember", "maxGroupPosts"]) if (k in o2 && !(Number.isInteger(o2[k]) && (o2[k] as number) >= 0)) r.fail("policy-override", `${k} must be an integer ≥ 0 (0 = unlimited)`);
+  for (const k of ["rateWindow", "maxCadence"]) {
+    if (!(k in o2) || (k === "maxCadence" && o2[k] === "")) continue;
+    try { if (!durationMs(String(o2[k]))) throw new Error(); } catch { r.fail("policy-override", `${k} must be a non-zero ISO 8601 duration (e.g. PT1H)`); }
+  }
+  if ("keyContinuity" in o2 && !["record", "hold"].includes(o2.keyContinuity as string)) r.fail("policy-override", "keyContinuity must be record or hold");
+  for (const m of Array.isArray(p.members) ? p.members : []) {
+    if (m.keys !== undefined && !(Array.isArray(m.keys) && m.keys.every((x) => typeof x === "string" && /^[A-Za-z0-9_-]{43}$/.test(x)))) {
+      r.fail("policy-member", `member ${m.feed} keys must be RFC 7638 thumbprints (43 base64url characters), the owner's pins`);
+    }
+  }
   if (r.findings.some((f) => f.level === "fail")) return r.findings;
   const s = effectiveSettings(p);
   if (s.hub === "required" && !isHttpUrl(p.hub)) r.fail("policy-hub", `preset ${preset} requires a hub; set "hub"`);
@@ -255,6 +305,8 @@ export async function validatePolicyText(text: string, policyUrl: string, o: Val
       const mods = cardModules(card);
       const missing = (p.requiredModules ?? []).filter((x) => !mods.includes(x));
       if (missing.length) mr.fail("required-modules", `member does not declare required modules ${missing.join(", ")}`);
+      const cp = cadenceProblem((ext?.params as any)?.cadence, s);
+      if (cp) mr.fail("member-cadence", cp);
     } catch (e) {
       mr.fail("member-fetch", (e as Error).message);
     }

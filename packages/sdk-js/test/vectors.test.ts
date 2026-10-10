@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  CanonicalError, canonicalize, keyFromJwk, signEntry, strictParse, thumbprint, verifyDetached, verifyEntry, verifyPolicy, utf8,
+  CanonicalError, PRESETS, canonicalize, checkContinuity, checkEntry, keyFromJwk, rotationStatement, signEntry, strictParse, thumbprint,
+  verifyDetached, verifyEntry, verifyPolicy, utf8,
 } from "../src/index.ts";
 
 const load = (n: string) => JSON.parse(readFileSync(new URL(`../../../test-vectors/${n}`, import.meta.url), "utf8"));
@@ -54,4 +55,28 @@ test("policy: signature verifies, and fails after any change", async () => {
   const { sig, ...rest } = f.policy;
   assert.equal(canonicalize(rest), f.canonicalUnsigned);
   assert.ok((await verifyDetached(sig, utf8(f.canonicalUnsigned), [f.ownerPublicJwk])).ok);
+});
+
+test("rotation: the statement is reproduced byte for byte, and every continuity case gives its expected result", async () => {
+  const f = load("rotation.json");
+  const keys = Object.fromEntries(await Promise.all(Object.entries(f.privateJwks).map(async ([k, v]) => [k, await keyFromJwk(v as any)])));
+  assert.deepEqual(await rotationStatement(f.card, keys[f.statement.from], keys[f.statement.to].publicJwk, f.at), f.statement.value);
+  for (const c of f.cases) {
+    const r = await checkContinuity({ cardUrl: f.card, trusted: c.trusted, current: c.current, rotations: c.rotations, pins: c.pins, seen: c.seen });
+    assert.deepEqual({ continuous: r.continuous, unannounced: r.unannounced, forks: r.forks }, c.expect, c.name);
+  }
+});
+
+test("controls: heartbeats, future-dated entries and the post caps give the expected codes", () => {
+  const f = load("controls.json");
+  for (const c of f.cases) {
+    const s = { ...PRESETS[c.preset as "standard"], ...c.overrides };
+    const posts = c.posts.map(([fd, u]: [string, string]) => [fd, Date.parse(u)] as const);
+    const v = checkEntry(c.entry, c.feed, s, {
+      depthOf: () => undefined, rootOf: () => undefined, lastPost: () => undefined,
+      postsIn: (fd, a, b) => posts.filter(([pf, pt]: readonly [string, number]) => (fd === undefined || pf === fd) && pt > a && pt <= b).length,
+      isEdit: () => c.edit, now: () => Date.parse(f.now),
+    });
+    assert.deepEqual(v.map((x) => x.code), c.codes, c.name);
+  }
 });

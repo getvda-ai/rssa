@@ -204,7 +204,7 @@ export class Hub {
         await this.refresh(g.id);
         return j({ id: g.id, feed: this.groupFeedUrl(g.id), status: `${url.origin}/g/${g.id}/status.json` }, 201);
       }
-      const m = /^\/g\/([0-9a-f]{12})\/(feed\.atom|roster\.opml|reactions\.json|status\.json|refresh|join|import)?$/.exec(path);
+      const m = /^\/g\/([0-9a-f]{12})\/(feed\.atom|roster\.opml|reactions\.json|status\.json|identity\.json|members\.json|refresh|join|import)?$/.exec(path);
       if (m) {
         const [, id, leaf] = m;
         if (leaf === "refresh" || leaf === "import") {

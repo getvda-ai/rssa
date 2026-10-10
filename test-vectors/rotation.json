@@ -1,0 +1,445 @@
+{
+  "description": "Key rotation statements (sign.md §9). `statement` must be reproduced byte for byte from privateJwks (Ed25519 is deterministic); every case must give `expect`.",
+  "card": "https://agent.example.com/.well-known/agent-card.json",
+  "at": "2026-10-10T09:00:00Z",
+  "privateJwks": {
+    "A": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "14W0lYPuc2xmz1Xch0dPTzN8lxv8PWnLoeIeZ3Y2U68",
+      "d": "CxIZICcuNTxDSlFYX2ZtdHuCiZCXnqWss7rByM_W3eQ",
+      "kid": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc"
+    },
+    "B": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "MXSaQ5LPfZhCEhvdvGEG7GwImyg7aGfFnR6sA7E-9TI",
+      "d": "DBMaISgvNj1ES1JZYGdudXyDipGYn6attLvCydDX3uU",
+      "kid": "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+    },
+    "C": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "nHq6JH1Lmot5tW6rGCV05fjNlUAomh-JWgaeAFtYs8o",
+      "d": "DRQbIikwNz5FTFNaYWhvdn2Ei5KZoKeutbzDytHY3-Y",
+      "kid": "YEb-8GrrDrKUmSsnJkbc5JXm_OQXqWGw7oqeWS3CeBk"
+    },
+    "D": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "4m9vqZHd83suXpYitrqvktge-J3iKYB1T_C87EjUtG4",
+      "d": "DhUcIyoxOD9GTVRbYmlwd36FjJOaoaivtr3Ey9LZ4Oc",
+      "kid": "LtJsl2U9EyAORAGEiOSg5QXMV3tXYlduQsBluwIxaE4"
+    }
+  },
+  "thumbprints": {
+    "A": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc",
+    "B": "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g",
+    "C": "YEb-8GrrDrKUmSsnJkbc5JXm_OQXqWGw7oqeWS3CeBk",
+    "D": "LtJsl2U9EyAORAGEiOSg5QXMV3tXYlduQsBluwIxaE4"
+  },
+  "statement": {
+    "from": "A",
+    "to": "B",
+    "signedInput": "{\"at\":\"2026-10-10T09:00:00Z\",\"card\":\"https://agent.example.com/.well-known/agent-card.json\",\"next\":\"Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g\",\"prev\":\"LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc\",\"type\":\"rssa.key-rotation\"}",
+    "value": {
+      "prev": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc",
+      "next": {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "x": "MXSaQ5LPfZhCEhvdvGEG7GwImyg7aGfFnR6sA7E-9TI",
+        "kid": "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+      },
+      "at": "2026-10-10T09:00:00Z",
+      "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6IkxEd01jSHgtWXVhRUVreDc1SjhJdDJjYkdRNkRLb1VzRHRtSXJtWkV4eGMifQ..sgJneus6Q4Y1wD2qJvCX_abse6qBng8FFWoB3E49BF3hKGwivOPNrOhfxygV8-cwmxoQFv5gtGQUcRwgSkfsCw"
+    }
+  },
+  "cases": [
+    {
+      "name": "announced",
+      "trusted": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "14W0lYPuc2xmz1Xch0dPTzN8lxv8PWnLoeIeZ3Y2U68",
+          "kid": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc"
+        }
+      ],
+      "current": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "MXSaQ5LPfZhCEhvdvGEG7GwImyg7aGfFnR6sA7E-9TI",
+          "kid": "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+        }
+      ],
+      "rotations": [
+        {
+          "prev": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc",
+          "next": {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "MXSaQ5LPfZhCEhvdvGEG7GwImyg7aGfFnR6sA7E-9TI",
+            "kid": "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+          },
+          "at": "2026-10-10T09:00:00Z",
+          "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6IkxEd01jSHgtWXVhRUVreDc1SjhJdDJjYkdRNkRLb1VzRHRtSXJtWkV4eGMifQ..sgJneus6Q4Y1wD2qJvCX_abse6qBng8FFWoB3E49BF3hKGwivOPNrOhfxygV8-cwmxoQFv5gtGQUcRwgSkfsCw"
+        }
+      ],
+      "expect": {
+        "continuous": [
+          "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+        ],
+        "unannounced": [],
+        "forks": []
+      }
+    },
+    {
+      "name": "chain",
+      "trusted": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "14W0lYPuc2xmz1Xch0dPTzN8lxv8PWnLoeIeZ3Y2U68",
+          "kid": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc"
+        }
+      ],
+      "current": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "nHq6JH1Lmot5tW6rGCV05fjNlUAomh-JWgaeAFtYs8o",
+          "kid": "YEb-8GrrDrKUmSsnJkbc5JXm_OQXqWGw7oqeWS3CeBk"
+        }
+      ],
+      "rotations": [
+        {
+          "prev": "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g",
+          "next": {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "nHq6JH1Lmot5tW6rGCV05fjNlUAomh-JWgaeAFtYs8o",
+            "kid": "YEb-8GrrDrKUmSsnJkbc5JXm_OQXqWGw7oqeWS3CeBk"
+          },
+          "at": "2026-10-10T09:00:00Z",
+          "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6Ikh4eDA2MzV0eThNZUFaREdsVnNlUkRtQ3NhYXpUWlJjUlhWNzRFLXFhMGcifQ..TEVDwh0cHX3avYbzgp03ZN32qoSwnqPQHe-EgF7uKu8HPemcaJxqCnBz7FLJBBC-NDht3c5eX5pEoy9jUWMaDg"
+        },
+        {
+          "prev": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc",
+          "next": {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "MXSaQ5LPfZhCEhvdvGEG7GwImyg7aGfFnR6sA7E-9TI",
+            "kid": "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+          },
+          "at": "2026-10-10T09:00:00Z",
+          "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6IkxEd01jSHgtWXVhRUVreDc1SjhJdDJjYkdRNkRLb1VzRHRtSXJtWkV4eGMifQ..sgJneus6Q4Y1wD2qJvCX_abse6qBng8FFWoB3E49BF3hKGwivOPNrOhfxygV8-cwmxoQFv5gtGQUcRwgSkfsCw"
+        }
+      ],
+      "expect": {
+        "continuous": [
+          "YEb-8GrrDrKUmSsnJkbc5JXm_OQXqWGw7oqeWS3CeBk"
+        ],
+        "unannounced": [],
+        "forks": []
+      }
+    },
+    {
+      "name": "unchanged",
+      "trusted": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "14W0lYPuc2xmz1Xch0dPTzN8lxv8PWnLoeIeZ3Y2U68",
+          "kid": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc"
+        }
+      ],
+      "current": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "14W0lYPuc2xmz1Xch0dPTzN8lxv8PWnLoeIeZ3Y2U68",
+          "kid": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc"
+        }
+      ],
+      "rotations": [],
+      "expect": {
+        "continuous": [
+          "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc"
+        ],
+        "unannounced": [],
+        "forks": []
+      }
+    },
+    {
+      "name": "silent-change",
+      "trusted": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "14W0lYPuc2xmz1Xch0dPTzN8lxv8PWnLoeIeZ3Y2U68",
+          "kid": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc"
+        }
+      ],
+      "current": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "4m9vqZHd83suXpYitrqvktge-J3iKYB1T_C87EjUtG4",
+          "kid": "LtJsl2U9EyAORAGEiOSg5QXMV3tXYlduQsBluwIxaE4"
+        }
+      ],
+      "rotations": [],
+      "expect": {
+        "continuous": [],
+        "unannounced": [
+          "LtJsl2U9EyAORAGEiOSg5QXMV3tXYlduQsBluwIxaE4"
+        ],
+        "forks": []
+      }
+    },
+    {
+      "name": "fork",
+      "trusted": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "14W0lYPuc2xmz1Xch0dPTzN8lxv8PWnLoeIeZ3Y2U68",
+          "kid": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc"
+        }
+      ],
+      "current": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "MXSaQ5LPfZhCEhvdvGEG7GwImyg7aGfFnR6sA7E-9TI",
+          "kid": "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+        }
+      ],
+      "rotations": [
+        {
+          "prev": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc",
+          "next": {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "MXSaQ5LPfZhCEhvdvGEG7GwImyg7aGfFnR6sA7E-9TI",
+            "kid": "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+          },
+          "at": "2026-10-10T09:00:00Z",
+          "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6IkxEd01jSHgtWXVhRUVreDc1SjhJdDJjYkdRNkRLb1VzRHRtSXJtWkV4eGMifQ..sgJneus6Q4Y1wD2qJvCX_abse6qBng8FFWoB3E49BF3hKGwivOPNrOhfxygV8-cwmxoQFv5gtGQUcRwgSkfsCw"
+        },
+        {
+          "prev": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc",
+          "next": {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "4m9vqZHd83suXpYitrqvktge-J3iKYB1T_C87EjUtG4",
+            "kid": "LtJsl2U9EyAORAGEiOSg5QXMV3tXYlduQsBluwIxaE4"
+          },
+          "at": "2026-10-10T09:00:00Z",
+          "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6IkxEd01jSHgtWXVhRUVreDc1SjhJdDJjYkdRNkRLb1VzRHRtSXJtWkV4eGMifQ..XWfFIoMkVJqp-TPLfGscSfKPcPeQIXa5Fk_sVIibm4IHmTFl5_sjolTMxp8jF0luDgqcZBs70qWHxpEzMSc5Dg"
+        }
+      ],
+      "expect": {
+        "continuous": [],
+        "unannounced": [
+          "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+        ],
+        "forks": [
+          "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc"
+        ]
+      }
+    },
+    {
+      "name": "fork-remembered",
+      "trusted": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "14W0lYPuc2xmz1Xch0dPTzN8lxv8PWnLoeIeZ3Y2U68",
+          "kid": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc"
+        }
+      ],
+      "current": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "4m9vqZHd83suXpYitrqvktge-J3iKYB1T_C87EjUtG4",
+          "kid": "LtJsl2U9EyAORAGEiOSg5QXMV3tXYlduQsBluwIxaE4"
+        }
+      ],
+      "rotations": [
+        {
+          "prev": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc",
+          "next": {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "4m9vqZHd83suXpYitrqvktge-J3iKYB1T_C87EjUtG4",
+            "kid": "LtJsl2U9EyAORAGEiOSg5QXMV3tXYlduQsBluwIxaE4"
+          },
+          "at": "2026-10-10T09:00:00Z",
+          "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6IkxEd01jSHgtWXVhRUVreDc1SjhJdDJjYkdRNkRLb1VzRHRtSXJtWkV4eGMifQ..XWfFIoMkVJqp-TPLfGscSfKPcPeQIXa5Fk_sVIibm4IHmTFl5_sjolTMxp8jF0luDgqcZBs70qWHxpEzMSc5Dg"
+        }
+      ],
+      "seen": {
+        "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc": "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+      },
+      "expect": {
+        "continuous": [],
+        "unannounced": [
+          "LtJsl2U9EyAORAGEiOSg5QXMV3tXYlduQsBluwIxaE4"
+        ],
+        "forks": [
+          "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc"
+        ]
+      }
+    },
+    {
+      "name": "owner-pin",
+      "trusted": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "14W0lYPuc2xmz1Xch0dPTzN8lxv8PWnLoeIeZ3Y2U68",
+          "kid": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc"
+        }
+      ],
+      "current": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "4m9vqZHd83suXpYitrqvktge-J3iKYB1T_C87EjUtG4",
+          "kid": "LtJsl2U9EyAORAGEiOSg5QXMV3tXYlduQsBluwIxaE4"
+        }
+      ],
+      "rotations": [],
+      "pins": [
+        "LtJsl2U9EyAORAGEiOSg5QXMV3tXYlduQsBluwIxaE4"
+      ],
+      "expect": {
+        "continuous": [
+          "LtJsl2U9EyAORAGEiOSg5QXMV3tXYlduQsBluwIxaE4"
+        ],
+        "unannounced": [],
+        "forks": []
+      }
+    },
+    {
+      "name": "bad-signature",
+      "trusted": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "14W0lYPuc2xmz1Xch0dPTzN8lxv8PWnLoeIeZ3Y2U68",
+          "kid": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc"
+        }
+      ],
+      "current": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "MXSaQ5LPfZhCEhvdvGEG7GwImyg7aGfFnR6sA7E-9TI",
+          "kid": "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+        }
+      ],
+      "rotations": [
+        {
+          "prev": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc",
+          "next": {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "MXSaQ5LPfZhCEhvdvGEG7GwImyg7aGfFnR6sA7E-9TI",
+            "kid": "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+          },
+          "at": "2026-10-10T09:00:00Z",
+          "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6IkxEd01jSHgtWXVhRUVreDc1SjhJdDJjYkdRNkRLb1VzRHRtSXJtWkV4eGMifQ..XWfFIoMkVJqp-TPLfGscSfKPcPeQIXa5Fk_sVIibm4IHmTFl5_sjolTMxp8jF0luDgqcZBs70qWHxpEzMSc5Dg"
+        }
+      ],
+      "expect": {
+        "continuous": [],
+        "unannounced": [
+          "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+        ],
+        "forks": []
+      }
+    },
+    {
+      "name": "wrong-card",
+      "trusted": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "14W0lYPuc2xmz1Xch0dPTzN8lxv8PWnLoeIeZ3Y2U68",
+          "kid": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc"
+        }
+      ],
+      "current": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "MXSaQ5LPfZhCEhvdvGEG7GwImyg7aGfFnR6sA7E-9TI",
+          "kid": "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+        }
+      ],
+      "rotations": [
+        {
+          "prev": "LDwMcHx-YuaEEkx75J8It2cbGQ6DKoUsDtmIrmZExxc",
+          "next": {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "MXSaQ5LPfZhCEhvdvGEG7GwImyg7aGfFnR6sA7E-9TI",
+            "kid": "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+          },
+          "at": "2026-10-10T09:00:00Z",
+          "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6IkxEd01jSHgtWXVhRUVreDc1SjhJdDJjYkdRNkRLb1VzRHRtSXJtWkV4eGMifQ..fIDSs--643x1XjVACABzi_NO1aoUFVhjZ1zUmydFZ6SODDwnNmYGyuliM3i9I46_QzGnJyxmK8EDU2HzyMFJCQ"
+        }
+      ],
+      "expect": {
+        "continuous": [],
+        "unannounced": [
+          "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g"
+        ],
+        "forks": []
+      }
+    },
+    {
+      "name": "signer-not-trusted",
+      "trusted": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "4m9vqZHd83suXpYitrqvktge-J3iKYB1T_C87EjUtG4",
+          "kid": "LtJsl2U9EyAORAGEiOSg5QXMV3tXYlduQsBluwIxaE4"
+        }
+      ],
+      "current": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "nHq6JH1Lmot5tW6rGCV05fjNlUAomh-JWgaeAFtYs8o",
+          "kid": "YEb-8GrrDrKUmSsnJkbc5JXm_OQXqWGw7oqeWS3CeBk"
+        }
+      ],
+      "rotations": [
+        {
+          "prev": "Hxx0635ty8MeAZDGlVseRDmCsaazTZRcRXV74E-qa0g",
+          "next": {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "nHq6JH1Lmot5tW6rGCV05fjNlUAomh-JWgaeAFtYs8o",
+            "kid": "YEb-8GrrDrKUmSsnJkbc5JXm_OQXqWGw7oqeWS3CeBk"
+          },
+          "at": "2026-10-10T09:00:00Z",
+          "sig": "eyJhbGciOiJFZERTQSIsImtpZCI6Ikh4eDA2MzV0eThNZUFaREdsVnNlUkRtQ3NhYXpUWlJjUlhWNzRFLXFhMGcifQ..TEVDwh0cHX3avYbzgp03ZN32qoSwnqPQHe-EgF7uKu8HPemcaJxqCnBz7FLJBBC-NDht3c5eX5pEoy9jUWMaDg"
+        }
+      ],
+      "expect": {
+        "continuous": [],
+        "unannounced": [
+          "YEb-8GrrDrKUmSsnJkbc5JXm_OQXqWGw7oqeWS3CeBk"
+        ],
+        "forks": []
+      }
+    }
+  ]
+}

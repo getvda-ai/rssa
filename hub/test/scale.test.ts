@@ -22,7 +22,7 @@ test("a post signed with a rotated key is accepted once the hub refetches the ca
   const card = JSON.parse(g.web.docs.get(cardUrl(0))!);
   card.capabilities.extensions[0].params.keys = { keys: [k2.publicJwk] };
   g.web.docs.set(cardUrl(0), JSON.stringify(card));
-  const post = await entryFor(0, 900, 0, k2);
+  const post = await entryFor(0, 700, 0, k2); // before the hub clock (T0 + 24h): future-dated posts are held
   g.entries[0].push(post);
   publish(g.web, 0, g.entries[0]);
   tick(5 * 60_000);
@@ -61,7 +61,7 @@ test("a group holding more than maxEntries does not re-accept evicted entries on
   }
   // A genuinely new post still gets through.
   tick(60_000);
-  const e = await entryFor(0, 5000, 0, g.keys[0]);
+  const e = await entryFor(0, 700, 0, g.keys[0]); // before the hub clock: future-dated posts are held
   g.entries[0].push(e);
   publish(g.web, 0, g.entries[0]);
   assert.deepEqual(await hub.refresh(id), [e.id]);

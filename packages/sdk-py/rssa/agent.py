@@ -13,12 +13,15 @@ from .sign import Check, sign_entry, verify_entry
 
 EXT_URI = "https://rssa.getvda.ai/ext/v0.1"
 EXT_PREFIX = "https://rssa.getvda.ai/ext/"
-USER_AGENT = "rssa-sdk-py/0.1 (+https://rssa.getvda.ai)"
+USER_AGENT = "rssa-sdk-py/0.2 (+https://rssa.getvda.ai)"
 
 
 def card_extension(feed: str, modules: Optional[list[str]] = None, hub: Optional[str] = None,
-                   groups: Optional[list[str]] = None, keys: Any = None) -> dict:
-    """The one Agent Card line. Put it in card["capabilities"]["extensions"]."""
+                   groups: Optional[list[str]] = None, keys: Any = None, rotations: Optional[list] = None,
+                   cadence: Optional[str] = None) -> dict:
+    """The one Agent Card line. Put it in card["capabilities"]["extensions"].
+    rotations: key rotation statements, newest first (continuity.rotation_statement).
+    cadence: ISO 8601 duration; this agent shows a signal (an entry or a heartbeat) at least this often."""
     params: dict = {"feed": feed}
     if modules:
         params["modules"] = modules
@@ -28,6 +31,10 @@ def card_extension(feed: str, modules: Optional[list[str]] = None, hub: Optional
         params["groups"] = groups
     if keys:
         params["keys"] = keys
+    if rotations:
+        params["rotations"] = rotations
+    if cadence:
+        params["cadence"] = cadence
     return {"uri": EXT_URI, "description": "RSSA: this agent's feed and modules", "required": False, "params": params}
 
 
@@ -202,21 +209,32 @@ def local_filter(entries: list[ReadEntry], signed_only: bool = False, types: Opt
             and (to is None or (r.entry.to or "group") in to) and (sources is None or r.source in sources)]
 
 
+def heartbeat(id: str, updated: Optional[str] = None) -> Entry:
+    """The heartbeat entry: proof of life between posts. Keep ONE per feed with a fixed `id` and
+    republish it with a fresh `updated` (an edit), so the feed never grows. Declare params.cadence."""
+    return Entry(id=id, updated=updated or now(), title="heartbeat", type="agent.heartbeat")
+
+
 @dataclass
 class GroupRead:
     policy: dict
     policy_verified: bool
-    entries: list[ReadEntry]  # newest first
+    entries: list[ReadEntry]  # newest first; heartbeats are not entries, they feed `liveness`
     problems: list[str]
+    # per member feed: {"cadence", "lastSignal", "state"} with state live / late / silent / undeclared / failing
+    liveness: dict = field(default_factory=dict)
 
 
-def read_group(policy_url: str, fetch: Optional[Fetch] = None, reader_card: Optional[str] = None) -> GroupRead:
+def read_group(policy_url: str, fetch: Optional[Fetch] = None, reader_card: Optional[str] = None, now_ts: Optional[float] = None) -> GroupRead:
     """Hubless group reading (open groups, two-party links, or checking a hub): fetches and
     verifies the policy, reads every member feed, checks two-way membership, then applies
     the group's policy in time order. Dropped entries are listed in `problems` with the reason."""
     from datetime import datetime as _dt
+    from datetime import timezone as _tz
 
-    from .policy import check_entry, effective_settings, verify_policy
+    import time as _time
+
+    from .policy import HEARTBEAT, PostLedger, cadence_problem, check_entry, effective_settings, liveness, verify_policy
 
     ua = f"{USER_AGENT} reader={reader_card}" if reader_card else USER_AGENT
     fetch = fetch or (lambda u: http_get(u, accept="application/atom+xml, application/rss+xml, application/feed+json, application/json", user_agent=ua))
@@ -227,34 +245,59 @@ def read_group(policy_url: str, fetch: Optional[Fetch] = None, reader_card: Opti
         problems.append(f"policy signature: {perr}")
     s = effective_settings(policy)
     refs = {policy.get("group"), policy_url}
+    clock = now_ts if now_ts is not None else _time.time()
     every: list[ReadEntry] = []
+    members: dict[str, dict] = {}
     for m in policy.get("members", []):
+        members[m["feed"]] = {"ok": False}
         try:
             fr = read_feed(m["feed"], fetch=fetch, require_signatures=s["signatures"] == "required" or None)
         except Exception as e:  # noqa: BLE001
             problems.append(f"{m['feed']}: {e}")
             continue
-        groups = (((find_rssa(fr.card) or {}).get("params")) or {}).get("groups") or []
+        params = ((find_rssa(fr.card) or {}).get("params")) or {}
+        groups = params.get("groups") or []
         if not refs & set(groups):
             problems.append(f"{m['feed']}: its Agent Card does not list this group — not a member (two-way membership)")
             continue
+        cp = cadence_problem(params.get("cadence"), s)
+        if cp:
+            problems.append(f"{m['feed']}: {cp}")
+            continue
+        members[m["feed"]] = {"ok": True, "cadence": params.get("cadence")}
         problems += [f"{m['feed']}: {p}" for p in fr.problems]
         every += fr.entries
     ts = lambda r: _dt.fromisoformat(r.entry.updated.replace("Z", "+00:00")).timestamp()
-    every.sort(key=ts)
+    # One global order (updated, then feed, then id), so the group-wide cap gives every reader the same answer.
+    every.sort(key=lambda r: (ts(r), r.source, r.entry.id))
     depth: dict[str, int] = {}
     root: dict[str, str] = {}
     last: dict[str, float] = {}
+    ledger = PostLedger()
     kept: list[ReadEntry] = []
     for r in every:
         e = r.entry
-        v = check_entry(e, r.source, s, depth_of=depth.get, root_of=root.get, last_post=lambda f, rt: last.get(f"{f} {rt}"))
+        v = check_entry(e, r.source, s, depth_of=depth.get, root_of=root.get, last_post=lambda f, rt: last.get(f"{f} {rt}"),
+                        posts_in=ledger.count, now=clock)
         if v:
             problems.append(f"dropped {e.id}: " + "; ".join(m for _, m in v))
             continue
+        mm = members.get(r.source)
+        if mm is not None:
+            mm["last"] = max(mm.get("last") or 0, ts(r))
+        if e.type == HEARTBEAT:
+            continue
+        if e.type != "reaction":
+            ledger.add(r.source, ts(r))
         d = depth.get(e.in_reply_to, 0) + 1 if e.in_reply_to else 0
         rt = root.get(e.in_reply_to, e.in_reply_to) if e.in_reply_to else e.id
         depth[e.id], root[e.id] = d, rt
         last[f"{r.source} {rt}"] = ts(r)
         kept.append(r)
-    return GroupRead(policy, pok, list(reversed(kept)), problems)
+    live = {}
+    for feed, mm in members.items():
+        last_signal = mm.get("last")
+        live[feed] = {"cadence": mm.get("cadence"),
+                      "lastSignal": _dt.fromtimestamp(last_signal, _tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if last_signal else None,
+                      "state": liveness(mm.get("cadence"), last_signal, clock, mm["ok"])}
+    return GroupRead(policy, pok, list(reversed(kept)), problems, live)

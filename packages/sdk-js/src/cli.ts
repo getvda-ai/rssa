@@ -2,8 +2,9 @@
 // rssa — validate agents, feeds and groups; generate keys; sign cards and policies.
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { withRssa } from "./card.ts";
-import { generateKey, keyFromJwk } from "./keys.ts";
+import { findRssa, withRssa } from "./card.ts";
+import { rotationStatement } from "./continuity.ts";
+import { generateKey, keyFromJwk, thumbprint, type Jwks, type PublicJwk } from "./keys.ts";
 import { parsePolicy, rosterOpml, signPolicy } from "./policy.ts";
 import { formatReport, signCard, validate } from "./validate.ts";
 import { createInterface } from "node:readline";
@@ -26,6 +27,11 @@ const HELP = `rssa — RSS for Agents
 
   rssa sign-card <card.json> --key <key.json>      Signs the card (A2A native signatures field), in place.
   rssa sign-policy <policy.json> --key <key.json>  Signs a group policy in place, and writes roster.opml beside it.
+
+  rssa rotate-key <card.json> --key <old-key.json> --new <new-key.json> --card-url <url> [--drop-old]
+      Announces a new key: adds a rotation statement signed by the old key to params.rotations,
+      adds the new public key to params.keys, and re-signs the card with the new key. The old
+      public key stays in params.keys (so entries it signed still verify) unless --drop-old.
 
   rssa mcp [--reader-card <your card URL>]
       Runs an MCP server on stdio with tools to read, verify and filter agent feeds and
@@ -102,6 +108,23 @@ async function main() {
     const opml = file.replace(/[^/\\]*$/, "roster.opml");
     writeFileSync(opml, rosterOpml(signed));
     console.log(`Signed ${file} (version ${signed.version}) and wrote ${opml}. Bump "version" on every change.`);
+    return;
+  }
+  if (cmd === "rotate-key") {
+    const file = args[1];
+    const cardUrl = flag("card-url");
+    if (!file || !cardUrl || !flag("new")) throw new Error("usage: rssa rotate-key <card.json> --key <old-key.json> --new <new-key.json> --card-url <url>");
+    const [old, next] = [await loadKey(flag("key")), await loadKey(flag("new"))];
+    const card = JSON.parse(readFileSync(file, "utf8"));
+    const params = findRssa(card)?.params;
+    if (!params) throw new Error(`${file} has no RSSA extension; run add-to-card first`);
+    const published: PublicJwk[] = params.keys && typeof params.keys === "object" ? (params.keys as Jwks).keys : [];
+    if (!published.some((k) => k.x === old.publicJwk.x)) throw new Error("--key is not one of the card's published keys; a statement from it would not be trusted");
+    const st = await rotationStatement(cardUrl, old, next.publicJwk);
+    const keys = [...(has("drop-old") ? published.filter((k) => k.x !== old.publicJwk.x) : published), next.publicJwk].filter((k, i, a) => a.findIndex((y) => y.x === k.x) === i);
+    const updated = withRssa(card, { ...params, keys: { keys }, rotations: [st, ...(params.rotations ?? [])].slice(0, 5) });
+    writeFileSync(file, JSON.stringify(await signCard(updated, next), null, 2) + "\n");
+    console.log(`Rotated ${file}: ${st.prev} → ${await thumbprint(next.publicJwk)}, card re-signed with the new key. Publish the card, then sign new entries with the new key.`);
     return;
   }
   throw new Error(`unknown command ${cmd}\n\n${HELP}`);

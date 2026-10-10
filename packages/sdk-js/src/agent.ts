@@ -3,10 +3,13 @@
 import { cardModules, findRssa } from "./card.ts";
 import { atomXml, jsonFeed, parseFeed, rssXml, type FeedMeta, type ParsedFeed, type RssaEntry } from "./feed.ts";
 import { getJson, resolveKeys, type Fetcher, type PublicJwk, type RssaKey } from "./keys.ts";
-import { checkEntry, effectiveSettings, verifyPolicy, type GroupPolicy, type Violation } from "./policy.ts";
+import {
+  HEARTBEAT, PostLedger, cadenceProblem, checkEntry, effectiveSettings, liveness, verifyPolicy,
+  type GroupPolicy, type Liveness, type Violation,
+} from "./policy.ts";
 import { signEntry, verifyEntry, type Check } from "./sign.ts";
 
-export const USER_AGENT = "rssa-sdk/0.1 (+https://rssa.getvda.ai)";
+export const USER_AGENT = "rssa-sdk/0.2 (+https://rssa.getvda.ai)";
 
 /** Current time as an RFC 3339 instant at whole seconds (RSS 2.0 dates carry seconds only). */
 export const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -17,6 +20,14 @@ export type NewEntry = Omit<RssaEntry, "id" | "updated" | "payload" | "sig"> & {
 export function entry(e: NewEntry): RssaEntry {
   const updated = e.updated ? new Date(Date.parse(e.updated)).toISOString().replace(/\.\d{3}Z$/, "Z") : now();
   return { ...e, id: e.id ?? `urn:uuid:${crypto.randomUUID()}`, updated } as RssaEntry;
+}
+
+/**
+ * The heartbeat entry: proof of life between posts. Keep ONE per feed with a fixed `id` and republish
+ * it with a fresh `updated` (an edit), so the feed never grows. Declare the promise as params.cadence.
+ */
+export function heartbeat(id: string, updated?: string): RssaEntry {
+  return entry({ id, updated, type: "agent.heartbeat", title: "heartbeat" });
 }
 
 /**
@@ -60,6 +71,8 @@ export interface ReadOptions {
   readerCard?: string;
   /** Require valid signatures (default: required if the publisher's card lists the sign module). */
   requireSignatures?: boolean;
+  /** The reader's clock in ms (default Date.now): for the future-dated check and liveness. */
+  now?: () => number;
 }
 
 export interface ReadEntry extends RssaEntry {
@@ -142,10 +155,15 @@ export async function keysForFeed(feedUrl: string, cardUrl: string | undefined, 
   return keyCache.get(k)!;
 }
 
+export interface MemberLiveness { cadence?: string; lastSignal?: string; state: Liveness }
+
 export interface GroupRead {
   policy: GroupPolicy;
   policyVerified: boolean;
+  /** Group entries, newest first. Heartbeats are not entries: they feed `liveness`. */
   entries: ReadEntry[];
+  /** Per member feed: its declared cadence, its last signal, and live / late / silent / undeclared / failing. */
+  liveness: Record<string, MemberLiveness>;
   /** Member feeds that failed two-way membership or could not be read. */
   problems: string[];
 }
@@ -162,30 +180,45 @@ export async function readGroup(policyUrl: string, o: ReadOptions = {}): Promise
   if (!pv.ok) problems.push(`policy signature: ${pv.error}`);
   const s = effectiveSettings(policy);
   const all: ReadEntry[] = [];
+  const clock = o.now ?? Date.now;
+  const members: Record<string, { cadence?: string; ok: boolean; lastSignal?: number }> = {};
   await Promise.all(policy.members.map(async (m) => {
+    members[m.feed] = { ok: false };
     try {
       const fr = await readFeed(m.feed, { ...o, requireSignatures: s.signatures === "required" || o.requireSignatures });
-      const groups: string[] = findRssa(fr.card)?.params?.groups ?? [];
+      const params = findRssa(fr.card)?.params;
+      const groups: string[] = params?.groups ?? [];
       if (!groups.includes(policy.group) && !groups.includes(policyUrl)) {
         problems.push(`${m.feed}: its Agent Card does not list this group — not a member (two-way membership)`);
         return;
       }
+      const cp = cadenceProblem(params?.cadence, s);
+      if (cp) { problems.push(`${m.feed}: ${cp}`); return; }
+      members[m.feed] = { ok: true, cadence: params?.cadence };
       problems.push(...fr.problems.map((p) => `${m.feed}: ${p}`));
       all.push(...fr.entries);
     } catch (e) {
       problems.push(`${m.feed}: ${(e as Error).message}`);
     }
   }));
-  all.sort((a, b) => Date.parse(a.updated) - Date.parse(b.updated));
+  // One global order (by updated, then feed, then id), so the group-wide cap gives every reader the same answer.
+  all.sort((a, b) => Date.parse(a.updated) - Date.parse(b.updated) || (a.from < b.from ? -1 : a.from > b.from ? 1 : 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const depth = new Map<string, number>(), root = new Map<string, string>(), last = new Map<string, number>();
+  const ledger = new PostLedger();
   const kept: ReadEntry[] = [];
+  const signal = (feed: string, t: number) => { const mm = members[feed]; if (mm) mm.lastSignal = Math.max(mm.lastSignal ?? 0, t); };
   for (const e of all) {
     const violations = checkEntry(e, e.from, s, {
       depthOf: (id) => depth.get(id),
       rootOf: (id) => root.get(id),
       lastPost: (f, r) => last.get(`${f} ${r}`),
+      postsIn: (f, a, b) => ledger.count(f, a, b),
+      now: clock,
     });
     if (violations.length) { problems.push(`dropped ${e.id}: ${violations.map((v) => v.message).join("; ")}`); continue; }
+    signal(e.from, Date.parse(e.updated));
+    if (e.type === HEARTBEAT) continue;
+    if (e.type !== "reaction") ledger.add(e.from, Date.parse(e.updated));
     const d = e.inReplyTo ? (depth.get(e.inReplyTo) ?? 0) + 1 : 0;
     const r = e.inReplyTo ? (root.get(e.inReplyTo) ?? e.inReplyTo) : e.id;
     depth.set(e.id, d);
@@ -193,7 +226,12 @@ export async function readGroup(policyUrl: string, o: ReadOptions = {}): Promise
     last.set(`${e.from} ${r}`, Date.parse(e.updated));
     kept.push(e);
   }
-  return { policy, policyVerified: pv.ok, entries: kept.reverse(), problems };
+  const t = clock();
+  const live: Record<string, MemberLiveness> = {};
+  for (const [feed, mm] of Object.entries(members)) {
+    live[feed] = { cadence: mm.cadence, lastSignal: mm.lastSignal ? new Date(mm.lastSignal).toISOString() : undefined, state: liveness({ cadence: mm.cadence, lastSignal: mm.lastSignal, now: t, ok: mm.ok }) };
+  }
+  return { policy, policyVerified: pv.ok, entries: kept.reverse(), liveness: live, problems };
 }
 
 export interface LocalPolicy {

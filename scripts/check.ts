@@ -66,6 +66,9 @@ for (const [file, as] of [["minimal-card.json", "https://agent.example.com/.well
   ok(pol(JSON.parse(site("groups/supply-ops/policy.json"))), "schema: demo policy");
   ok(!pol(JSON.parse(readFileSync(join(root, "demo", "broken", "policy-float.json"), "utf8"))), "schema: rejects a float in policy");
   for (const v of JSON.parse(readFileSync(join(root, "test-vectors", "entries.json"), "utf8")).vectors) ok(pay(JSON.parse(v.payloadCanonical)), `schema: payload ${v.entry.id}`);
+  const rot = JSON.parse(readFileSync(join(root, "test-vectors", "rotation.json"), "utf8"));
+  ok(card({ uri: "https://rssa.getvda.ai/ext/v0.1", params: { feed: "https://a.example/feed.atom", cadence: "PT1H", rotations: [rot.statement.value] } }), "schema: card extension with cadence and rotations");
+  ok(pol({ version: 1, group: "https://g.example/p.json", owner: "https://g.example/k.json", members: [{ feed: "https://a.example/f", keys: [rot.thumbprints.B] }], overrides: { rateWindow: "PT1H", maxPostsPerMember: 12, maxGroupPosts: 60, keyContinuity: "hold", maxCadence: "P1D" } }), "schema: policy with the v0.2 settings and an owner pin");
 }
 
 // 3. Cross-language: Python verifies what JS signed.

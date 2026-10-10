@@ -7,9 +7,9 @@
 // writes one row (the meta row's refreshedAt). Reads are lazy: a 304 reads one row.
 
 import {
-  USER_AGENT, atomXml, checkEntry, durationMs, effectiveSettings, findRssa, cardModules, parseFeed, resolveKeys,
-  rosterOpml, strictParse, verifyEntry, verifyPolicy,
-  type GroupPolicy, type PublicJwk, type RssaEntry, type Settings,
+  HEARTBEAT, PostLedger, USER_AGENT, atomXml, cadenceProblem, checkContinuity, checkEntry, durationMs, effectiveSettings, findRssa,
+  cardModules, liveness, parseFeed, resolveKeys, rosterOpml, strictParse, thumbprint, verifyEntry, verifyPolicy,
+  type GroupPolicy, type PublicJwk, type RotationStatement, type RssaEntry, type Settings,
 } from "../../packages/sdk-js/src/index.ts";
 import type { GroupStore } from "./store.ts";
 
@@ -23,6 +23,21 @@ const XML_CHUNK = 450_000;
 /** Bounds WebSub fan-out per group (budget guard). */
 export const MAX_SUBSCRIBERS = 100;
 const REJECTED_LOG = 100;
+/**
+ * Hub budget guard, by the hub's own clock (non-normative): at most this many accepted entries,
+ * edits and reactions per member per hour. The rest wait for the next hour. It stops a member
+ * backdating a flood past the group's caps, and bounds writes and signature checks per member.
+ */
+export const MEMBER_BUDGET = 120;
+const BUDGET_WINDOW_MS = 3_600_000;
+/** A heartbeat is absorbed at most this often per member; faster ones wait (write budget). */
+export const HEARTBEAT_MIN_MS = 5 * 60_000;
+/** Pings for one URL closer together than this are dropped; the next ping or the poll picks the change up. */
+export const PING_GAP_MS = 10_000;
+/** Liveness slack: the hub polls every 5 minutes, so a signal can reach it up to one poll late. */
+export const LIVENESS_SLACK_MS = 10 * 60_000;
+const IDENTITY_HISTORY = 20;
+const TRUSTED_KEYS = 20;
 
 export interface CardState {
   feed: string;
@@ -33,11 +48,42 @@ export interface CardState {
   fetchedAt: number;
   /** Set when the last refetch failed and we are running on the cached copy (identity grace). */
   staleSince?: number;
-  /** Set when the keys changed without an announcement (v0.1 records it; rotation statements come later). */
+  /** Set when the keys changed without a rotation statement or owner pin. */
   keyChangedAt?: number;
+  /** Declared params.cadence. */
+  cadence?: string;
+  /** The card's rotation statements (sign.md §9), kept to re-evaluate when the owner's pins change. */
+  rotations?: RotationStatement[];
+  /** Thumbprints of `keys`, in order. */
+  thumbs?: string[];
+  /** Keys this hub trusts for the member: first seen, announced by a statement, pinned, or (under record) accepted. */
+  trusted?: PublicJwk[];
+  /** Thumbprints in the card with no statement or pin. Under keyContinuity hold, their posts are held. */
+  unannounced?: string[];
+  /** Keys that announced two different successors. */
+  forks?: string[];
+  /** Each key's announced successor, remembered so a later contradicting statement is a fork. */
+  seen?: Record<string, string>;
+  /** The pins this state was computed with (sorted, comma-joined). */
+  pins?: string;
+  /** The identity log: each change of the member's key set, newest last. */
+  history?: IdentityEvent[];
 }
+export interface IdentityEvent { at: number; keys: string[]; change: "first" | "rotated" | "pinned" | "unannounced" | "held" | "fork" }
+/** Facts the hub keeps per member (members.json). No score. */
+export interface Track { firstSeen: number; accepted: number; edits: number; heartbeats: number; rejected: Record<string, number> }
 export interface StoredEntry extends RssaEntry { acceptedAt: number; depth: number; root: string }
-export interface MemberStatus { feed: string; ok: boolean; problem?: string; etag?: string; lastModified?: string }
+export interface MemberStatus {
+  feed: string; ok: boolean; problem?: string; etag?: string; lastModified?: string;
+  /** Entries waiting (future-dated or over the hub budget): the feed is refetched without a conditional GET until they clear. */
+  held?: number;
+  /** Hub budget window: its start and the entries accepted in it. */
+  budget?: { start: number; n: number };
+  /** Latest signal (entry or heartbeat `updated`, capped at the hub's clock). */
+  lastSignal?: number;
+  lastHeartbeatAt?: number;
+  track?: Track;
+}
 export interface Subscription { callback: string; topic: string; secret?: string; expires: number; createdAt: number }
 interface Rejection { id: string; feed: string; at: number; reasons: string[] }
 
@@ -113,6 +159,7 @@ export class Group {
   private chain: Promise<unknown> = Promise.resolve();
   private pendingPings = new Map<string, Promise<string[]>>();
   private lastFetch = new Map<string, number>();
+  private lastPing = new Map<string, number>();
   /** Counters for tests and the perf harness. */
   readonly stats = { refreshes: 0 };
 
@@ -224,6 +271,10 @@ export class Group {
   ping(url: string): Promise<string[]> {
     const queued = this.pendingPings.get(url);
     if (queued) return queued;
+    // Debounce: a burst of pings for one URL costs one refetch (anyone can ping a member's URL).
+    const t = this.c.now();
+    if (t - (this.lastPing.get(url) ?? -Infinity) < PING_GAP_MS) return Promise.resolve([]);
+    this.lastPing.set(url, t);
     const p = this.serial(async () => {
       this.pendingPings.delete(url);
       const m = await this.loadMeta();
@@ -241,11 +292,15 @@ export class Group {
 
   // ---------------- member cards and keys ----------------
 
-  private async card(feed: string, cardUrl: string | undefined, settings: Settings, force = false): Promise<CardState | { error: string }> {
+  private async card(feed: string, cardUrl: string | undefined, settings: Settings, force = false, pins: string[] = []): Promise<CardState | { error: string }> {
     const f = this.full!;
     const cached = f.cards[feed];
     const now = this.c.now();
-    if (cached && !force && now - cached.fetchedAt < this.c.cardTtlMs && (!cardUrl || cached.cardUrl === cardUrl)) return cached;
+    if (cached && !force && now - cached.fetchedAt < this.c.cardTtlMs && (!cardUrl || cached.cardUrl === cardUrl)) {
+      // The owner changed this member's pins: re-evaluate the cached card against them.
+      if ((cached.pins ?? "") !== [...pins].sort().join(",")) await this.continuity(cached, { ...cached }, pins, settings, now);
+      return cached;
+    }
     const url = cardUrl ?? cached?.cardUrl;
     if (!url) return { error: "feed has no rel=describedby link to its Agent Card" };
     try {
@@ -256,10 +311,13 @@ export class Group {
       if (!ext) return { error: `card ${url} has no RSSA extension` };
       if (ext.params.feed !== feed) return { error: `card ${url} names feed ${ext.params.feed}, not ${feed}` };
       const keys = ext.params.keys ? await resolveKeys(ext.params.keys, this.c.fetch) : [];
-      const next: CardState = { feed, cardUrl: url, keys, groups: ext.params.groups ?? [], modules: cardModules(card), fetchedAt: now };
-      if (cached && cached.keys.length && JSON.stringify(cached.keys.map((k) => k.x).sort()) !== JSON.stringify(keys.map((k) => k.x).sort())) {
-        next.keyChangedAt = now;
-      } else if (cached?.keyChangedAt) next.keyChangedAt = cached.keyChangedAt;
+      const p = ext.params as unknown as Record<string, unknown>;
+      const next: CardState = {
+        feed, cardUrl: url, keys, groups: ext.params.groups ?? [], modules: cardModules(card), fetchedAt: now,
+        cadence: typeof p.cadence === "string" ? p.cadence : undefined,
+        rotations: Array.isArray(p.rotations) ? (p.rotations as RotationStatement[]).slice(0, 50) : undefined,
+      };
+      await this.continuity(next, cached, pins, settings, now);
       f.cards[feed] = next;
       return next;
     } catch (e) {
@@ -275,6 +333,61 @@ export class Group {
       }
       return { error: `cannot fetch card: ${(e as Error).message}` };
     }
+  }
+
+  /**
+   * Key continuity (sign.md §9): which of the card's keys this hub trusts, and the identity log.
+   * The first card seen is trusted (TOFU). After that a new key needs a rotation statement from a
+   * trusted key, or an owner pin; otherwise it is recorded (keyContinuity record) or held (hold).
+   */
+  private async continuity(next: CardState, prev: CardState | undefined, pins: string[], s: Settings, now: number) {
+    const pub = (k: PublicJwk): PublicJwk => ({ kty: "OKP", crv: "Ed25519", x: k.x });
+    next.thumbs = await Promise.all(next.keys.map((k) => thumbprint(k)));
+    next.pins = [...pins].sort().join(",");
+    next.history = [...(prev?.history ?? [])];
+    next.seen = { ...(prev?.seen ?? {}) };
+    const log = (change: IdentityEvent["change"]) => {
+      next.history!.push({ at: now, keys: next.thumbs!, change });
+      next.history = next.history!.slice(-IDENTITY_HISTORY);
+    };
+    // Cards cached before continuity existed: their keys are the trusted set (no alarm on upgrade).
+    const before = prev?.trusted ?? prev?.keys ?? [];
+    if (!before.length) {
+      next.trusted = next.keys.map(pub);
+      next.unannounced = [];
+      next.forks = [];
+      if (!next.history.length) log("first");
+      return;
+    }
+    const c = await checkContinuity({ cardUrl: next.cardUrl, trusted: before, current: next.keys, rotations: next.rotations, pins, seen: prev?.seen });
+    for (const e of c.edges) if (!c.forks.includes(e.prev)) next.seen[e.prev] ??= e.next;
+    const trusted = new Map<string, PublicJwk>();
+    for (const k of c.trusted) trusted.set(await thumbprint(k), pub(k));
+    // Under record, a silent change is accepted (and logged); under hold, it is not trusted.
+    if (s.keyContinuity !== "hold") next.keys.forEach((k, i) => trusted.set(next.thumbs![i], pub(k)));
+    // Bound the set, always keeping the card's current keys.
+    const cur = new Set(next.thumbs);
+    const others = [...trusted].filter(([t]) => !cur.has(t)).slice(-Math.max(0, TRUSTED_KEYS - cur.size));
+    next.trusted = [...[...trusted].filter(([t]) => cur.has(t)), ...others].map(([, k]) => k);
+    next.unannounced = s.keyContinuity === "hold" ? c.unannounced : [];
+    next.forks = c.forks;
+    const beforeThumbs = new Set(await Promise.all(before.map((k) => thumbprint(k))));
+    const prevThumbs = prev?.thumbs ?? (await Promise.all((prev?.keys ?? []).map((k) => thumbprint(k))));
+    const keysChanged = [...prevThumbs].sort().join() !== [...next.thumbs].sort().join();
+    const newFork = c.forks.some((x) => !(prev?.forks ?? []).includes(x));
+    const newKeys = next.thumbs.filter((t) => !beforeThumbs.has(t));
+    const viaPin = newKeys.length > 0 && newKeys.every((t) => pins.includes(t));
+    if (newFork) log("fork");
+    else if (keysChanged) log(c.unannounced.length ? (s.keyContinuity === "hold" ? "held" : "unannounced") : viaPin ? "pinned" : "rotated");
+    else if (prev?.unannounced?.length && !next.unannounced.length) log(prev.unannounced.every((t) => pins.includes(t)) ? "pinned" : "rotated");
+    if (keysChanged && c.unannounced.length) next.keyChangedAt = now;
+    else if (!keysChanged) next.keyChangedAt = prev?.keyChangedAt;
+  }
+
+  /** The keys posts are verified with: the card's keys, minus any held under keyContinuity hold. */
+  private verifyKeys(c: CardState): PublicJwk[] {
+    if (!c.unannounced?.length) return c.keys;
+    return c.keys.filter((_, i) => !c.unannounced!.includes(c.thumbs?.[i] ?? ""));
   }
 
   // ---------------- refresh ----------------
@@ -315,34 +428,41 @@ export class Group {
     }
     const feeds = opts.only ? allFeeds.filter((x) => x === opts.only) : allFeeds;
 
-    // Thread context from what the group already holds.
+    // Thread context and post counts from what the group already holds.
     const depth = new Map(f.entries.map((e) => [e.id, e.depth]));
     const root = new Map(f.entries.map((e) => [e.id, e.root]));
     const last = new Map<string, number>();
+    const ledger = new PostLedger();
     for (const e of f.entries) {
       const k = `${e.sourceFeed} ${e.root}`;
       last.set(k, Math.max(last.get(k) ?? 0, Date.parse(e.updated)));
+      if (e.type !== "reaction") ledger.add(e.sourceFeed ?? "", Date.parse(e.updated));
     }
     const known = new Map(f.entries.map((e) => [e.id, e]));
     const accepted: string[] = [];
     const { decided, sigrej, react } = f;
     let reactionsChanged = false;
     const floor = m.floor ? Date.parse(m.floor) : undefined;
+    const track = (st: MemberStatus) => (st.track ??= { firstSeen: now, accepted: 0, edits: 0, heartbeats: 0, rejected: {} });
+    const count = (st: MemberStatus, codes: string[]) => { const t = track(st); for (const c of new Set(codes)) t.rejected[c] = (t.rejected[c] ?? 0) + 1; };
     const logRejection = (r: Rejection) => {
       m.rejected.unshift(r);
       m.rejected = m.rejected.slice(0, REJECTED_LOG);
     };
-    const reject = (e: RssaEntry, feed: string, reasons: string[]) => {
+    const reject = (e: RssaEntry, feed: string, reasons: string[], codes: string[]) => {
       decided[e.id] = { updated: e.updated, feed };
       logRejection({ id: e.id, feed, at: now, reasons });
+      count(f.members[feed], codes);
     };
     // A feed holding posts rejected on their signature is fetched without a conditional GET once its
     // card is due for a refetch, so a key rotation reaches those posts even if the feed itself is unchanged.
+    // So is a feed with held posts (future-dated or over the hub budget), so they are seen again.
     const sigrejFeeds = new Set(Object.values(sigrej).map((x) => x.feed));
     const unconditional = (feed: string) =>
-      (opts.forceCard && feed === opts.only) || (sigrejFeeds.has(feed) && (!f.cards[feed] || now - f.cards[feed].fetchedAt >= this.c.cardTtlMs));
+      (opts.forceCard && feed === opts.only) || !!f.members[feed]?.held ||
+      (sigrejFeeds.has(feed) && (!f.cards[feed] || now - f.cards[feed].fetchedAt >= this.c.cardTtlMs));
 
-    // Fetch member feeds concurrently (pool of FETCH_POOL), then process them in policy order.
+    // Fetch member feeds concurrently (pool of FETCH_POOL).
     const bodies = new Map<string, string | undefined>();
     const queue = [...feeds];
     await Promise.all(Array.from({ length: Math.min(FETCH_POOL, queue.length) }, async () => {
@@ -371,85 +491,127 @@ export class Group {
       }
     }));
 
-    for (const feed of feeds) {
+    // Parse and check membership per feed, in policy order; collect every new or edited entry.
+    interface Candidate { e: RssaEntry; feed: string; order: number; card: CardState; keys: PublicJwk[]; keySet: string; selfUrl?: string }
+    const candidates: Candidate[] = [];
+    const served: Array<{ feed: string; present: Set<string> }> = [];
+    for (const [order, feed] of feeds.entries()) {
       const st = f.members[feed];
       const body = bodies.get(feed);
       if (body === undefined) continue; // 304 (unchanged) or a fetch error already recorded on st
       let parsed;
       try { parsed = parseFeed(body); } catch (e) { st.ok = false; st.problem = (e as Error).message; continue; }
 
-      // 2. Membership: two-way, and required modules declared.
-      const card = await this.card(feed, parsed.cardUrl, s, opts.forceCard && feed === opts.only);
+      // 2. Membership: two-way, required modules declared, cadence within the group's maxCadence.
+      const pins = policy.members.find((x) => x.feed === feed)?.keys ?? [];
+      const card = await this.card(feed, parsed.cardUrl, s, opts.forceCard && feed === opts.only, Array.isArray(pins) ? pins : []);
       if ("error" in card) { st.ok = false; st.problem = card.error; continue; }
       if (!card.groups.some((x) => groupRef.includes(x))) { st.ok = false; st.problem = "the member's Agent Card does not list this group (two-way membership)"; continue; }
       const missing = (policy.requiredModules ?? []).filter((x) => !card.modules.includes(x));
       if (missing.length) { st.ok = false; st.problem = `card does not declare required modules: ${missing.join(", ")}`; continue; }
+      const cp = cadenceProblem(card.cadence, s);
+      if (cp) { st.ok = false; st.problem = cp; continue; }
       st.ok = true;
-      st.problem = card.staleSince ? `identity stale since ${new Date(card.staleSince).toISOString()} (card unreachable; using last known key)` : card.keyChangedAt ? `keys changed at ${new Date(card.keyChangedAt).toISOString()} without a rotation statement` : undefined;
+      track(st);
+      const notes: string[] = [];
+      if (card.staleSince) notes.push(`identity stale since ${new Date(card.staleSince).toISOString()} (card unreachable; using last known key)`);
+      if (card.forks?.length) notes.push(`key ${card.forks.join(", ")} announced two different successors; neither is trusted`);
+      if (card.unannounced?.length) notes.push(`posts signed with unannounced key ${card.unannounced.join(", ")} are held (keyContinuity hold) until a rotation statement or an owner pin`);
+      else if (card.keyChangedAt) notes.push(`keys changed at ${new Date(card.keyChangedAt).toISOString()} without a rotation statement`);
+      st.problem = notes.length ? notes.join("; ") : undefined;
+      st.held = 0;
 
-      const keySet = card.keys.map((k) => k.x).sort().join(",");
-      const fresh = parsed.entries
-        .filter((e) => {
-          // Only entries that are new or edited since we last decided on them. Without the
-          // `decided` check, every change to a member feed re-checked (and re-logged, and
-          // re-tallied) everything the hub had rejected or counted before.
-          const k = known.get(e.id);
-          const d = decided[e.id];
-          if (k && Date.parse(e.updated) <= Date.parse(k.updated)) return false;
-          if (d && Date.parse(e.updated) <= Date.parse(d.updated)) return false;
-          const sr = sigrej[e.id];
-          if (sr && sr.keys === keySet && Date.parse(e.updated) <= Date.parse(sr.updated)) return false;
-          // At capacity, anything not newer than the oldest retained entry would be evicted at once.
-          if (!k && floor !== undefined && Date.parse(e.updated) <= floor) return false;
-          return true;
-        })
-        .sort((a, b) => Date.parse(a.updated) - Date.parse(b.updated));
-      for (const e of fresh) {
-        // 3a. Cheap checks: size limits.
-        if ((e.payload?.length ?? 0) > LIMITS.payload || (e.summary?.length ?? 0) > LIMITS.summary || (e.content?.length ?? 0) > LIMITS.content) {
-          reject(e, feed, ["entry exceeds hub size limits"]);
-          continue;
-        }
-        // 3b. Group policy.
-        const violations = checkEntry(e, feed, s, {
-          depthOf: (x) => depth.get(x),
-          rootOf: (x) => root.get(x),
-          lastPost: (fd, r) => last.get(`${fd} ${r}`),
-        });
-        if (violations.length) { reject(e, feed, violations.map((v) => v.message)); continue; }
-        // 3c. Only then, signatures.
-        if (s.signatures === "required" || e.sig) {
-          const v = await verifyEntry(e, parsed.selfUrl ?? feed, card.keys);
-          const bindFeedOk = parsed.selfUrl === undefined || parsed.selfUrl === feed;
-          if (!v.ok || !bindFeedOk) {
-            // Not final: the member's keys may have rotated since the hub last fetched its card.
-            sigrej[e.id] = { updated: e.updated, keys: keySet, feed };
-            logRejection({ id: e.id, feed, at: now, reasons: [...v.checks.filter((c) => !c.ok).map((c) => c.message), ...(bindFeedOk ? [] : [`feed rel=self ${parsed.selfUrl} differs from the member URL ${feed}`])] });
-            continue;
-          }
-        }
-        if (e.type === "reaction" && e.inReplyTo) {
-          // One vote per reacting entry; an edited reaction replaces its earlier value.
-          react[e.id] = { target: e.inReplyTo, reaction: e.reaction! };
-          decided[e.id] = { updated: e.updated, feed };
-          delete sigrej[e.id];
-          reactionsChanged = true;
-          continue;
-        }
-        const d = e.inReplyTo ? (depth.get(e.inReplyTo) ?? 0) + 1 : 0;
-        const r = e.inReplyTo ? (root.get(e.inReplyTo) ?? e.inReplyTo) : e.id;
-        depth.set(e.id, d);
-        root.set(e.id, r);
-        last.set(`${feed} ${r}`, Date.parse(e.updated));
-        const stored: StoredEntry = { ...e, sourceFeed: feed, sourceCard: card.cardUrl, acceptedAt: now, depth: d, root: r };
-        known.set(e.id, stored);
-        delete sigrej[e.id];
-        accepted.push(e.id);
+      const keys = this.verifyKeys(card);
+      const keySet = keys.map((k) => k.x).sort().join(",");
+      for (const e of parsed.entries) {
+        // Only entries that are new or edited since we last decided on them. Without the
+        // `decided` check, every change to a member feed re-checked (and re-logged, and
+        // re-tallied) everything the hub had rejected or counted before.
+        const k = known.get(e.id);
+        const d = decided[e.id];
+        if (k && Date.parse(e.updated) <= Date.parse(k.updated)) continue;
+        if (d && Date.parse(e.updated) <= Date.parse(d.updated)) continue;
+        const sr = sigrej[e.id];
+        if (sr && sr.keys === keySet && Date.parse(e.updated) <= Date.parse(sr.updated)) continue;
+        // At capacity, anything not newer than the oldest retained entry would be evicted at once.
+        if (!k && floor !== undefined && Date.parse(e.updated) <= floor && e.type !== HEARTBEAT) continue;
+        candidates.push({ e, feed, order, card, keys, keySet, selfUrl: parsed.selfUrl });
       }
+      served.push({ feed, present: new Set(parsed.entries.map((e) => e.id)) });
+    }
 
-      // Bookkeeping is kept only while the member still serves the entry (diff on 200). A reaction's
-      // record also stays while its target is retained, because the tally is derived from it.
-      const present = new Set(parsed.entries.map((e) => e.id));
+    // 3. One global order (updated, then policy order, then id): the group-wide cap does not depend on fetch order.
+    candidates.sort((a, b) => Date.parse(a.e.updated) - Date.parse(b.e.updated) || a.order - b.order || (a.e.id < b.e.id ? -1 : a.e.id > b.e.id ? 1 : 0));
+    for (const { e, feed, card, keys, keySet, selfUrl } of candidates) {
+      const st = f.members[feed];
+      // 3a. Cheap checks: size limits.
+      if ((e.payload?.length ?? 0) > LIMITS.payload || (e.summary?.length ?? 0) > LIMITS.summary || (e.content?.length ?? 0) > LIMITS.content) {
+        reject(e, feed, ["entry exceeds hub size limits"], ["size"]);
+        continue;
+      }
+      // 3b. Group policy.
+      const edit = known.has(e.id);
+      const violations = checkEntry(e, feed, s, {
+        depthOf: (x) => depth.get(x),
+        rootOf: (x) => root.get(x),
+        lastPost: (fd, r) => last.get(`${fd} ${r}`),
+        postsIn: (fd, a, b) => ledger.count(fd, a, b),
+        isEdit: (x) => known.has(x),
+        now: () => now,
+      });
+      // Future-dated entries wait (not final): they become valid when their time comes.
+      if (violations.some((v) => v.code === "future-dated")) { st.held = (st.held ?? 0) + 1; continue; }
+      if (violations.length) { reject(e, feed, violations.map((v) => v.message), violations.map((v) => v.code)); continue; }
+      // 3c. The hub's own budget, by its clock: over it, entries wait for the next hour (not final).
+      const heartbeat = e.type === HEARTBEAT;
+      if (heartbeat && st.lastHeartbeatAt !== undefined && now - st.lastHeartbeatAt < HEARTBEAT_MIN_MS) continue;
+      if (!st.budget || now - st.budget.start >= BUDGET_WINDOW_MS) st.budget = { start: now, n: 0 };
+      if (!heartbeat && st.budget.n >= MEMBER_BUDGET) { st.held = (st.held ?? 0) + 1; continue; }
+      // 3d. Only then, signatures.
+      if (s.signatures === "required" || e.sig) {
+        const v = await verifyEntry(e, selfUrl ?? feed, keys);
+        const bindFeedOk = selfUrl === undefined || selfUrl === feed;
+        if (!v.ok || !bindFeedOk) {
+          // Not final: the member's keys may have rotated since the hub last fetched its card.
+          if (!sigrej[e.id]) count(st, ["signature"]);
+          sigrej[e.id] = { updated: e.updated, keys: keySet, feed };
+          const held = card.unannounced?.length ? ["held: signed with a key that has no rotation statement or owner pin (keyContinuity hold)"] : [];
+          logRejection({ id: e.id, feed, at: now, reasons: [...held, ...v.checks.filter((c) => !c.ok).map((c) => c.message), ...(bindFeedOk ? [] : [`feed rel=self ${selfUrl} differs from the member URL ${feed}`])] });
+          continue;
+        }
+      }
+      delete sigrej[e.id];
+      st.lastSignal = Math.max(st.lastSignal ?? 0, Math.min(Date.parse(e.updated), now));
+      if (heartbeat) {
+        // Absorbed, not merged: a heartbeat only proves the member is alive.
+        decided[e.id] = { updated: e.updated, feed };
+        st.lastHeartbeatAt = now;
+        track(st).heartbeats++;
+        continue;
+      }
+      st.budget.n++;
+      if (e.type === "reaction" && e.inReplyTo) {
+        // One vote per reacting entry; an edited reaction replaces its earlier value.
+        react[e.id] = { target: e.inReplyTo, reaction: e.reaction! };
+        decided[e.id] = { updated: e.updated, feed };
+        reactionsChanged = true;
+        continue;
+      }
+      const d = e.inReplyTo ? (depth.get(e.inReplyTo) ?? 0) + 1 : 0;
+      const r = e.inReplyTo ? (root.get(e.inReplyTo) ?? e.inReplyTo) : e.id;
+      depth.set(e.id, d);
+      root.set(e.id, r);
+      last.set(`${feed} ${r}`, Date.parse(e.updated));
+      if (!edit) ledger.add(feed, Date.parse(e.updated));
+      const stored: StoredEntry = { ...e, sourceFeed: feed, sourceCard: card.cardUrl, acceptedAt: now, depth: d, root: r };
+      known.set(e.id, stored);
+      track(st)[edit ? "edits" : "accepted"]++;
+      accepted.push(e.id);
+    }
+
+    // Bookkeeping is kept only while the member still serves the entry (diff on 200). A reaction's
+    // record also stays while its target is retained, because the tally is derived from it.
+    for (const { feed, present } of served) {
       for (const [id, d] of Object.entries(decided)) {
         if (d.feed !== feed || present.has(id)) continue;
         if (react[id]) {
@@ -581,6 +743,19 @@ export class Group {
     await this.c.rows.write([["reader", mt[1], String(this.c.now())]], []);
   }
 
+  /** A member's declared cadence, last signal and liveness state. */
+  private live(f: Full, feed: string) {
+    const st = f.members[feed];
+    const card = f.cards[feed];
+    // Before heartbeats existed the hub kept no lastSignal: fall back to the member's newest retained entry.
+    let lastSignal = st?.lastSignal;
+    if (lastSignal === undefined) for (const e of f.entries) if (e.sourceFeed === feed) lastSignal = Math.max(lastSignal ?? 0, Date.parse(e.updated));
+    return {
+      cadence: card?.cadence, lastSignal: lastSignal !== undefined ? new Date(lastSignal).toISOString() : undefined, held: st?.held || undefined,
+      liveness: liveness({ cadence: card?.cadence, lastSignal, now: this.c.now(), ok: !!st?.ok, slackMs: LIVENESS_SLACK_MS }),
+    };
+  }
+
   private async mergedXml(m: Meta): Promise<string> {
     if (this.xml && this.xml.etag === m.feedEtag) return this.xml.body;
     const chunks = await this.c.rows.list("xml");
@@ -628,8 +803,49 @@ export class Group {
         return j({
           group: m.policy?.group ?? m.policyUrl, name: m.policy?.name, version: m.policy?.version, preset: m.policy?.preset ?? "standard",
           policyProblem: m.policyProblem, refreshedAt: m.refreshedAt && new Date(m.refreshedAt).toISOString(),
-          members: Object.values(f.members).map((x) => ({ ...x, lastFetch: this.lastFetch.get(x.feed) })), entries: f.entries.length, rejected: m.rejected.slice(0, 20),
+          members: Object.values(f.members).map(({ track: _t, budget: _b, lastSignal: _l, lastHeartbeatAt: _h, ...x }) => ({
+            ...x, lastFetch: this.lastFetch.get(x.feed), ...this.live(f, x.feed),
+          })),
+          entries: f.entries.length, rejected: m.rejected.slice(0, 20),
           gate: { readers: readers.length, outsideReaders: readers.filter((r) => !memberCards.has(r)).length, websubSubscribers: subs.length },
+        });
+      }
+      if (req.method === "GET" && leaf === "identity.json") {
+        // The identity log (non-normative): each member's trusted keys and every change to its key set.
+        const f = await this.loadFull();
+        const keyContinuity = m.policy ? effectiveSettings(m.policy).keyContinuity : undefined;
+        return j({
+          group: m.policy?.group ?? m.policyUrl, keyContinuity,
+          members: Object.values(f.cards).map((c) => ({
+            feed: c.feed, card: c.cardUrl, keys: c.thumbs ?? [], unannounced: c.unannounced ?? [], forks: c.forks ?? [],
+            held: !!c.unannounced?.length, history: (c.history ?? []).map((h) => ({ ...h, at: new Date(h.at).toISOString() })),
+          })),
+        });
+      }
+      if (req.method === "GET" && leaf === "members.json") {
+        // Each member's track record (non-normative): facts the hub saw, never a score.
+        const f = await this.loadFull();
+        const received: Record<string, Record<string, number>> = {};
+        for (const e of f.entries) {
+          const t = m.reactions[e.id];
+          if (!t || !e.sourceFeed) continue;
+          const r = (received[e.sourceFeed] ??= {});
+          for (const [k, n] of Object.entries(t)) r[k] = (r[k] ?? 0) + n;
+        }
+        return j({
+          group: m.policy?.group ?? m.policyUrl,
+          note: "Facts this hub observed for each member. Not a score: what they mean is the reader's call.",
+          members: Object.values(f.members).map((st) => {
+            const t = st.track;
+            const h = f.cards[st.feed]?.history ?? [];
+            return {
+              feed: st.feed, firstSeen: t && new Date(t.firstSeen).toISOString(),
+              accepted: t?.accepted ?? 0, edits: t?.edits ?? 0, heartbeats: t?.heartbeats ?? 0, rejected: t?.rejected ?? {},
+              reactionsReceived: received[st.feed] ?? {},
+              keyChanges: { announced: h.filter((x) => x.change === "rotated" || x.change === "pinned").length, unannounced: h.filter((x) => x.change === "unannounced" || x.change === "held").length, forks: h.filter((x) => x.change === "fork").length },
+              ...this.live(f, st.feed),
+            };
+          }),
         });
       }
       if (req.method === "POST" && leaf === "refresh") return j({ accepted: await this.refresh() });

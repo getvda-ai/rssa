@@ -27,6 +27,12 @@ def main(argv=None) -> int:
     p = sub.add_parser("sign-policy", help="sign a group policy.json in place and write roster.opml beside it")
     p.add_argument("policy")
     p.add_argument("--key", required=True)
+    rk = sub.add_parser("rotate-key", help="announce a new key: a rotation statement signed by the old key, then re-sign the card with the new one")
+    rk.add_argument("card")
+    rk.add_argument("--key", required=True, help="the current (old) private key")
+    rk.add_argument("--new", required=True, help="the new private key")
+    rk.add_argument("--card-url", required=True, help="the URL the card is served at (the statement binds to it)")
+    rk.add_argument("--drop-old", action="store_true", help="remove the old public key from params.keys (entries it signed stop verifying)")
     args = ap.parse_args(argv)
 
     if args.cmd == "keygen":
@@ -60,6 +66,29 @@ def main(argv=None) -> int:
             json.dump(signed, f, indent=2, ensure_ascii=False)
             f.write("\n")
         print(f"Signed {args.card}. Re-sign after every change to the card.")
+        return 0
+    if args.cmd == "rotate-key":
+        from .agent import find_rssa
+        from .continuity import rotation_statement
+        from .keys import thumbprint
+        with open(args.card, encoding="utf-8") as f:
+            card = json.load(f)
+        old, new = load_key(args.key), load_key(args.new)
+        params = dict((find_rssa(card) or {}).get("params") or {})
+        published = (params.get("keys") or {}).get("keys", []) if isinstance(params.get("keys"), dict) else []
+        if not any(k.get("x") == old.public_jwk["x"] for k in published):
+            print("rssa: --key is not one of the card's published keys; a statement from it would not be trusted", file=sys.stderr)
+            return 2
+        st = rotation_statement(args.card_url, old, new.public_jwk)
+        keys = [k for k in published if not (args.drop_old and k.get("x") == old.public_jwk["x"])]
+        if not any(k.get("x") == new.public_jwk["x"] for k in keys):
+            keys.append(new.public_jwk)
+        params.update(keys={"keys": keys}, rotations=([st] + list(params.get("rotations") or []))[:5])
+        signed = sign_card(with_rssa(card, **params), new)
+        with open(args.card, "w", encoding="utf-8") as f:
+            json.dump(signed, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        print(f"Rotated {args.card}: {st['prev']} -> {thumbprint(new.public_jwk)}, card re-signed with the new key. Publish the card, then sign new entries with the new key.")
         return 0
     if args.cmd == "verify":
         r = read_feed(args.url, require_signatures=False)

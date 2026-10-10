@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rssa"
-version = "0.1.2"
+version = "0.2.0"
 description = "RSS-A (RSS for Agents): publish, sign, read and verify agent feeds and groups."
 readme = "README.md"
 license = "Apache-2.0"

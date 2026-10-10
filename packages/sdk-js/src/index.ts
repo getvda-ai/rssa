@@ -4,6 +4,7 @@ export * from "./feed.ts";
 export * from "./sign.ts";
 export * from "./card.ts";
 export * from "./policy.ts";
+export * from "./continuity.ts";
 export * from "./agent.ts";
 export * from "./validate.ts";
 export * from "./mcp.ts";

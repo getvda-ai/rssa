@@ -16,6 +16,21 @@
         "modules": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9.-]*(@[0-9]+\\.[0-9]+)?$" }, "uniqueItems": true },
         "hub": { "type": "string", "format": "uri", "pattern": "^https://" },
         "groups": { "type": "array", "items": { "type": "string", "format": "uri", "pattern": "^https://" }, "uniqueItems": true },
+        "cadence": { "type": "string", "pattern": "^P(\\d+D)?(T(\\d+H)?(\\d+M)?(\\d+S)?)?$", "description": "This agent shows a signal (an entry or an agent.heartbeat) at least this often." },
+        "rotations": {
+          "type": "array",
+          "description": "Key rotation statements, newest first (sign.md §9).",
+          "items": {
+            "type": "object",
+            "required": ["prev", "next", "at", "sig"],
+            "properties": {
+              "prev": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
+              "next": { "$ref": "#/$defs/ed25519PublicJwk" },
+              "at": { "type": "string", "format": "date-time" },
+              "sig": { "type": "string", "pattern": "^[A-Za-z0-9_-]+\\.\\.[A-Za-z0-9_-]+$" }
+            }
+          }
+        },
         "keys": {
           "oneOf": [
             { "type": "string", "pattern": "^(https://|did:web:)" },

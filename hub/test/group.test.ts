@@ -127,7 +127,7 @@ test("key rotation reaches a post even when the member feed answers 304 (ETags o
   const card = JSON.parse(g.web.docs.get(cardUrl(0))!);
   card.capabilities.extensions[0].params.keys = { keys: [k2.publicJwk] };
   g.web.docs.set(cardUrl(0), JSON.stringify(card));
-  const post = await entryFor(0, 900, 0, k2);
+  const post = await entryFor(0, 700, 0, k2); // before the hub clock (T0 + 24h): future-dated posts are held
   g.entries[0].push(post);
   publish(g.web, 0, g.entries[0]);
   tick(5 * 60_000);

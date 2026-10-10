@@ -7,8 +7,12 @@ import { resolveKeys, signDetached, verifyDetached, type Fetcher, type RssaKey }
 
 export const CORE_TYPES = [
   "brief.published", "exception.reported", "question.asked", "answer.posted",
-  "decision.recorded", "reaction", "group.joined", "group.left",
+  "decision.recorded", "reaction", "group.joined", "group.left", "agent.heartbeat",
 ] as const;
+/** Control entries are tallied or absorbed by hubs, never merged: they skip summary, addressing and type rules. */
+export const HEARTBEAT = "agent.heartbeat";
+/** How far ahead of the reader's clock an entry's `updated` may be (clock skew). */
+export const FUTURE_SKEW_MS = 5 * 60_000;
 export const CORE_REACTIONS = ["agree", "disagree", "ack"] as const;
 
 /** Custom types and reactions use a reverse-domain prefix with at least three labels: com.example.supply.delay */
@@ -31,24 +35,43 @@ export interface Settings {
   anchoring: "none" | "optional" | "required";
   hub: "optional" | "required";
   identityGrace: string;
+  /** Window for the two post caps below (ISO 8601 duration). */
+  rateWindow: string;
+  /** Max new entries per member in any rateWindow, across all threads; 0 = unlimited. */
+  maxPostsPerMember: number;
+  /** Max new entries from the whole group in any rateWindow; 0 = unlimited. */
+  maxGroupPosts: number;
+  /** What a key change without a rotation statement does: record it, or hold that key's posts. */
+  keyContinuity: "record" | "hold";
+  /** When set, every member must declare a cadence no longer than this (ISO 8601 duration); "" = not required. */
+  maxCadence: string;
 }
 
 export const PRESETS: Record<"open" | "standard" | "strict", Settings> = {
   open: {
     signatures: "optional", summary: "optional", summaryMaxLength: 0, addressing: "optional", maxDepth: 0, minInterval: "PT0S",
     contentFreeReplies: "allowed", allowedTypes: "any", declaredTypes: [], membership: "open", anchoring: "none", hub: "optional", identityGrace: "PT24H",
+    rateWindow: "PT1H", maxPostsPerMember: 0, maxGroupPosts: 0, keyContinuity: "record", maxCadence: "",
   },
   standard: {
     signatures: "required", summary: "required", summaryMaxLength: 280, addressing: "optional", maxDepth: 8, minInterval: "PT1M",
     contentFreeReplies: "reactions-only", allowedTypes: "core+declared", declaredTypes: [], membership: "owner-approves", anchoring: "optional", hub: "required", identityGrace: "PT24H",
+    rateWindow: "PT1H", maxPostsPerMember: 0, maxGroupPosts: 0, keyContinuity: "record", maxCadence: "",
   },
   strict: {
     signatures: "required", summary: "required", summaryMaxLength: 280, addressing: "required", maxDepth: 4, minInterval: "PT15M",
     contentFreeReplies: "reactions-only", allowedTypes: "declared", declaredTypes: [], membership: "owner-approves", anchoring: "required", hub: "required", identityGrace: "PT24H",
+    rateWindow: "PT1H", maxPostsPerMember: 12, maxGroupPosts: 60, keyContinuity: "hold", maxCadence: "",
   },
 };
 
-export interface Member { feed: string; role?: string; name?: string }
+export interface Member {
+  feed: string;
+  role?: string;
+  name?: string;
+  /** Owner-approved key thumbprints (RFC 7638) for this member: accepted as if announced (key recovery). */
+  keys?: string[];
+}
 
 export interface GroupPolicy {
   version: number;
@@ -111,6 +134,7 @@ const ORDER: Record<string, string[]> = {
   membership: ["open", "owner-approves"],
   anchoring: ["none", "optional", "required"],
   hub: ["optional", "required"],
+  keyContinuity: ["record", "hold"],
 };
 
 /** How a policy departs from its preset: each override, and whether it relaxes the preset. */
@@ -122,9 +146,11 @@ export function presetDistance(p: GroupPolicy): { setting: string; preset: unkno
     const b = base[k];
     let relaxes = false;
     if (ORDER[k]) relaxes = ORDER[k].indexOf(v as string) < ORDER[k].indexOf(b);
-    else if (k === "maxDepth" || k === "summaryMaxLength") relaxes = (v === 0 && b !== 0) || (b !== 0 && (v as number) > b);
+    else if (k === "maxDepth" || k === "summaryMaxLength" || k === "maxPostsPerMember" || k === "maxGroupPosts") relaxes = (v === 0 && b !== 0) || (b !== 0 && (v as number) > b);
     else if (k === "minInterval") relaxes = durationMs(v as string) < durationMs(b);
     else if (k === "identityGrace") relaxes = durationMs(v as string) > durationMs(b);
+    else if (k === "rateWindow") relaxes = durationMs(v as string) < durationMs(b);
+    else if (k === "maxCadence") relaxes = (v === "" && b !== "") || (b !== "" && v !== "" && durationMs(v as string) > durationMs(b));
     if (JSON.stringify(v) !== JSON.stringify(b)) out.push({ setting: k, preset: b, value: v, relaxes });
   }
   return out;
@@ -145,6 +171,15 @@ export interface ThreadContext {
   rootOf(id: string): string | undefined;
   /** Time (ms) of this feed's previous post in the given thread, if any. */
   lastPost(feed: string, root: string): number | undefined;
+  /**
+   * Accepted posts (new ids; not reactions, heartbeats or edits) with `updated` in (fromMs, toMs]:
+   * from one feed, or from the whole group when feed is undefined. Enables the rate caps.
+   */
+  postsIn?(feed: string | undefined, fromMs: number, toMs: number): number;
+  /** True when this id was already accepted (an edit): edits are not new posts and skip the caps. */
+  isEdit?(id: string): boolean;
+  /** The checker's clock (ms). Enables the future-dated check. */
+  now?(): number;
 }
 
 export interface Violation { code: string; message: string }
@@ -156,6 +191,15 @@ export interface Violation { code: string; message: string }
 export function checkEntry(e: RssaEntry, feed: string, s: Settings, ctx?: ThreadContext): Violation[] {
   const v: Violation[] = [];
   const add = (code: string, message: string) => v.push({ code, message });
+  const heartbeat = e.type === HEARTBEAT;
+  if (ctx?.now && Date.parse(e.updated) > ctx.now() + FUTURE_SKEW_MS) {
+    add("future-dated", `updated ${e.updated} is more than ${FUTURE_SKEW_MS / 60_000} minutes ahead of this reader's clock; held until then`);
+  }
+  if (heartbeat) {
+    // A heartbeat is a control entry: no summary, address or declared type needed; it is never a reply.
+    if (e.inReplyTo) add("heartbeat-reply", "a heartbeat cannot be a reply");
+    return v;
+  }
   if (s.summary === "required" && e.type !== "reaction" && !e.summary?.trim()) add("summary-required", "this group requires a <summary> on every entry");
   if (s.summaryMaxLength && e.summary && [...e.summary.trim()].length > s.summaryMaxLength) {
     add("summary-too-long", `summary is ${[...e.summary.trim()].length} characters; this group allows ${s.summaryMaxLength}`);
@@ -190,6 +234,15 @@ export function checkEntry(e: RssaEntry, feed: string, s: Settings, ctx?: Thread
       add("too-fast", `posted ${Math.round((Date.parse(e.updated) - last) / 1000)}s after this agent's previous post in the thread; minInterval is ${s.minInterval}`);
     }
   }
+  if (ctx?.postsIn && e.type !== "reaction" && !ctx.isEdit?.(e.id) && (s.maxPostsPerMember || s.maxGroupPosts)) {
+    // Caps count new posts by `updated` in the window ending at this entry, so every reader gets the same answer.
+    const t = Date.parse(e.updated), from = t - durationMs(s.rateWindow);
+    if (s.maxPostsPerMember && ctx.postsIn(feed, from, t) >= s.maxPostsPerMember) {
+      add("member-rate", `this agent already has ${s.maxPostsPerMember} posts in the ${s.rateWindow} before this one (maxPostsPerMember)`);
+    } else if (s.maxGroupPosts && ctx.postsIn(undefined, from, t) >= s.maxGroupPosts) {
+      add("group-rate", `the group already has ${s.maxGroupPosts} posts in the ${s.rateWindow} before this one (maxGroupPosts)`);
+    }
+  }
   return v;
 }
 
@@ -208,4 +261,57 @@ export function rosterOpml(p: GroupPolicy): string {
     ``,
   ];
   return lines.join("\n");
+}
+
+/** Accepted post times, per feed and group-wide, for the rate caps (ThreadContext.postsIn). */
+export class PostLedger {
+  private byFeed = new Map<string, number[]>();
+  private all: number[] = [];
+  add(feed: string, t: number) {
+    insertSorted(this.all, t);
+    let a = this.byFeed.get(feed);
+    if (!a) this.byFeed.set(feed, (a = []));
+    insertSorted(a, t);
+  }
+  /** Posts with time in (fromMs, toMs]. */
+  count(feed: string | undefined, fromMs: number, toMs: number): number {
+    const a = feed === undefined ? this.all : this.byFeed.get(feed) ?? [];
+    return upperBound(a, toMs) - upperBound(a, fromMs);
+  }
+}
+function upperBound(a: number[], x: number) {
+  let lo = 0, hi = a.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (a[mid] <= x) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+function insertSorted(a: number[], x: number) { a.splice(upperBound(a, x), 0, x); }
+
+export type Liveness = "live" | "late" | "silent" | "undeclared" | "failing";
+
+/**
+ * "No news" versus "dead". A member's cadence (its card's params.cadence) is its promise to show a
+ * signal (any new or edited entry, or a heartbeat) at least that often. `slackMs` covers the reader's
+ * own polling interval.
+ */
+export function liveness(o: { cadence?: string; lastSignal?: number; now: number; ok: boolean; slackMs?: number }): Liveness {
+  if (!o.ok) return "failing";
+  if (!o.cadence) return "undeclared";
+  let c: number;
+  try { c = durationMs(o.cadence); } catch { return "undeclared"; }
+  if (!c) return "undeclared";
+  const age = o.lastSignal === undefined ? Infinity : o.now - o.lastSignal;
+  const slack = o.slackMs ?? 0;
+  if (age <= c + slack) return "live";
+  if (age <= 2 * c + slack) return "late";
+  return "silent";
+}
+
+/** A member's declared cadence against the group's maxCadence: an error message, or undefined when it complies. */
+export function cadenceProblem(cadence: unknown, s: Settings): string | undefined {
+  if (!s.maxCadence) return undefined;
+  if (typeof cadence !== "string") return `this group requires params.cadence in the member's card (at most ${s.maxCadence})`;
+  try {
+    if (!durationMs(cadence) || durationMs(cadence) > durationMs(s.maxCadence)) return `cadence ${cadence} is longer than this group's maxCadence ${s.maxCadence}`;
+  } catch { return `cadence ${JSON.stringify(cadence)} is not an ISO 8601 duration`; }
+  return undefined;
 }

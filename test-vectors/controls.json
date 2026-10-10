@@ -1,0 +1,283 @@
+{
+  "description": "checkEntry for the v0.2 controls. `posts` are accepted [feed, updated] pairs (the window is (updated - rateWindow, updated]); `edit` says the id was already accepted; `now` is the reader's clock. Each case must give exactly `codes`.",
+  "now": "2026-10-10T12:00:00.000Z",
+  "cases": [
+    {
+      "name": "heartbeat-under-strict",
+      "preset": "strict",
+      "overrides": {},
+      "feed": "https://a.example/feed.atom",
+      "entry": {
+        "id": "urn:uuid:00000000-0000-4000-8000-0000000000aa",
+        "type": "agent.heartbeat",
+        "updated": "2026-10-10T11:59:00Z"
+      },
+      "posts": [],
+      "edit": false,
+      "codes": []
+    },
+    {
+      "name": "heartbeat-as-reply",
+      "preset": "standard",
+      "overrides": {},
+      "feed": "https://a.example/feed.atom",
+      "entry": {
+        "id": "urn:uuid:00000000-0000-4000-8000-0000000000aa",
+        "type": "agent.heartbeat",
+        "updated": "2026-10-10T11:59:00Z",
+        "inReplyTo": "urn:x"
+      },
+      "posts": [],
+      "edit": false,
+      "codes": [
+        "heartbeat-reply"
+      ]
+    },
+    {
+      "name": "future-dated",
+      "preset": "standard",
+      "overrides": {},
+      "feed": "https://a.example/feed.atom",
+      "entry": {
+        "id": "urn:uuid:00000000-0000-4000-8000-0000000000aa",
+        "type": "brief.published",
+        "summary": "s",
+        "updated": "2026-10-10T12:06:00Z"
+      },
+      "posts": [],
+      "edit": false,
+      "codes": [
+        "future-dated"
+      ]
+    },
+    {
+      "name": "within-skew",
+      "preset": "standard",
+      "overrides": {},
+      "feed": "https://a.example/feed.atom",
+      "entry": {
+        "id": "urn:uuid:00000000-0000-4000-8000-0000000000aa",
+        "type": "brief.published",
+        "summary": "s",
+        "updated": "2026-10-10T12:04:00Z"
+      },
+      "posts": [],
+      "edit": false,
+      "codes": []
+    },
+    {
+      "name": "member-cap-reached",
+      "preset": "standard",
+      "overrides": {
+        "maxPostsPerMember": 2
+      },
+      "feed": "https://a.example/feed.atom",
+      "entry": {
+        "id": "urn:uuid:00000000-0000-4000-8000-0000000000aa",
+        "type": "brief.published",
+        "summary": "s",
+        "updated": "2026-10-10T12:00:00Z"
+      },
+      "posts": [
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:10:00Z"
+        ],
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:50:00Z"
+        ],
+        [
+          "https://b.example/feed.atom",
+          "2026-10-10T11:55:00Z"
+        ]
+      ],
+      "edit": false,
+      "codes": [
+        "member-rate"
+      ]
+    },
+    {
+      "name": "member-cap-window-is-exclusive",
+      "preset": "standard",
+      "overrides": {
+        "maxPostsPerMember": 2
+      },
+      "feed": "https://a.example/feed.atom",
+      "entry": {
+        "id": "urn:uuid:00000000-0000-4000-8000-0000000000aa",
+        "type": "brief.published",
+        "summary": "s",
+        "updated": "2026-10-10T12:00:00Z"
+      },
+      "posts": [
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:00:00Z"
+        ],
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:50:00Z"
+        ]
+      ],
+      "edit": false,
+      "codes": []
+    },
+    {
+      "name": "member-cap-edit",
+      "preset": "standard",
+      "overrides": {
+        "maxPostsPerMember": 2
+      },
+      "feed": "https://a.example/feed.atom",
+      "entry": {
+        "id": "urn:uuid:00000000-0000-4000-8000-0000000000aa",
+        "type": "brief.published",
+        "summary": "s",
+        "updated": "2026-10-10T12:00:00Z"
+      },
+      "posts": [
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:10:00Z"
+        ],
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:50:00Z"
+        ]
+      ],
+      "edit": true,
+      "codes": []
+    },
+    {
+      "name": "member-cap-reaction",
+      "preset": "standard",
+      "overrides": {
+        "maxPostsPerMember": 2
+      },
+      "feed": "https://a.example/feed.atom",
+      "entry": {
+        "id": "urn:uuid:00000000-0000-4000-8000-0000000000aa",
+        "type": "reaction",
+        "reaction": "ack",
+        "inReplyTo": "urn:x",
+        "updated": "2026-10-10T12:00:00Z"
+      },
+      "posts": [
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:10:00Z"
+        ],
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:50:00Z"
+        ]
+      ],
+      "edit": false,
+      "codes": []
+    },
+    {
+      "name": "group-cap-reached",
+      "preset": "standard",
+      "overrides": {
+        "maxGroupPosts": 3
+      },
+      "feed": "https://a.example/feed.atom",
+      "entry": {
+        "id": "urn:uuid:00000000-0000-4000-8000-0000000000aa",
+        "type": "brief.published",
+        "summary": "s",
+        "updated": "2026-10-10T12:00:00Z"
+      },
+      "posts": [
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:10:00Z"
+        ],
+        [
+          "https://b.example/feed.atom",
+          "2026-10-10T11:50:00Z"
+        ],
+        [
+          "https://b.example/feed.atom",
+          "2026-10-10T11:55:00Z"
+        ]
+      ],
+      "edit": false,
+      "codes": [
+        "group-rate"
+      ]
+    },
+    {
+      "name": "strict-defaults-member-cap",
+      "preset": "strict",
+      "overrides": {
+        "declaredTypes": [
+          "brief.published"
+        ]
+      },
+      "feed": "https://a.example/feed.atom",
+      "entry": {
+        "id": "urn:uuid:00000000-0000-4000-8000-0000000000aa",
+        "type": "brief.published",
+        "summary": "s",
+        "to": "group",
+        "updated": "2026-10-10T12:00:00Z"
+      },
+      "posts": [
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:05:00Z"
+        ],
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:09:00Z"
+        ],
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:13:00Z"
+        ],
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:17:00Z"
+        ],
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:21:00Z"
+        ],
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:25:00Z"
+        ],
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:29:00Z"
+        ],
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:33:00Z"
+        ],
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:37:00Z"
+        ],
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:41:00Z"
+        ],
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:45:00Z"
+        ],
+        [
+          "https://a.example/feed.atom",
+          "2026-10-10T11:49:00Z"
+        ]
+      ],
+      "edit": false,
+      "codes": [
+        "member-rate"
+      ]
+    }
+  ]
+}
