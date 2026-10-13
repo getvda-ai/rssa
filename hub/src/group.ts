@@ -120,7 +120,8 @@ interface Full {
   members: Record<string, MemberStatus>;
   cards: Record<string, CardState>;
   entries: StoredEntry[];
-  /** Entries decided without being stored (rejected or tallied). Re-reads skip them until they change. */
+  /** Entries decided without being stored (rejected or tallied). Re-reads skip them until they change.
+   *  `decided`, `sigrej` and `react` are keyed by rowKey(feed, id): ids are only unique within a member's feed. */
   decided: Record<string, { updated: string; feed?: string }>;
   /** Entries rejected on their signature, with the member's key set at the time: re-checked when either changes (#10). */
   sigrej: Record<string, { updated: string; keys: string; feed?: string }>;
@@ -147,6 +148,30 @@ export interface GroupConfig {
 }
 
 const TABLES = ["member", "card", "entry", "decided", "sigrej", "react"] as const;
+
+/** Key of a per-entry bookkeeping row: the member feed and the entry id (a URL contains no space). */
+export const rowKey = (feed: string, id: string) => `${feed} ${id}`;
+const rowId = (key: string) => key.slice(key.indexOf(" ") + 1);
+
+/** Rows saved before hub 0.3.1 were keyed by entry id alone: rekey those whose feed is known. The rest
+ *  (v0.1 imports carry no feed) keep their bare key until that entry is decided again (forgetLegacy). */
+function rekeyRows(f: Full) {
+  const owner = (k: string) => f.decided[k]?.feed ?? f.sigrej[k]?.feed;
+  const react: Full["react"] = {};
+  for (const [k, v] of Object.entries(f.react)) {
+    react[k.includes(" ") || !owner(k) ? k : rowKey(owner(k)!, k)] = v;
+  }
+  const rekey = <T extends { feed?: string }>(rows: Record<string, T>) => {
+    const out: Record<string, T> = {};
+    for (const [k, v] of Object.entries(rows)) {
+      out[k.includes(" ") || !v.feed ? k : rowKey(v.feed, k)] = v;
+    }
+    return out;
+  };
+  f.decided = rekey(f.decided);
+  f.sigrej = rekey(f.sigrej);
+  f.react = react;
+}
 
 const j = (v: unknown, status = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(v, null, 2), { status, headers: { "content-type": "application/json; charset=utf-8", ...headers } });
@@ -217,6 +242,7 @@ export class Group {
       }
     }
     f.entries.sort((a, b) => Date.parse(b.updated) - Date.parse(a.updated));
+    rekeyRows(f);
     return (this.full = f);
   }
 
@@ -472,6 +498,12 @@ export class Group {
     const known = new Map(f.entries.map((e) => [e.id, e]));
     const accepted: string[] = [];
     const { decided, sigrej, react } = f;
+    // A bare-id row (pre-0.3.1, feed unknown) is replaced by the per-feed row when its entry is decided again.
+    const forgetLegacy = (id: string) => {
+      if (react[id]) { delete react[id]; reactionsChanged = true; }
+      delete decided[id];
+      delete sigrej[id];
+    };
     let reactionsChanged = false;
     const floor = m.floor ? Date.parse(m.floor) : undefined;
     // Members that predate the track record start from what the hub still holds: their oldest
@@ -487,7 +519,8 @@ export class Group {
       m.rejected = m.rejected.slice(0, REJECTED_LOG);
     };
     const reject = (e: RssaEntry, feed: string, reasons: string[], codes: string[]) => {
-      decided[e.id] = { updated: e.updated, feed };
+      forgetLegacy(e.id);
+      decided[rowKey(feed, e.id)] = { updated: e.updated, feed };
       logRejection({ id: e.id, feed, at: now, reasons });
       count(f.members[feed], codes);
     };
@@ -569,11 +602,13 @@ export class Group {
         // Only entries that are new or edited since we last decided on them. Without the
         // `decided` check, every change to a member feed re-checked (and re-logged, and
         // re-tallied) everything the hub had rejected or counted before.
+        // `known` is keyed by id alone (ids stay unique in the group feed); another member's id is
+        // not skipped here but rejected below as id-taken, once (the per-feed `decided` row stops repeats).
         const k = known.get(e.id);
-        const d = decided[e.id];
-        if (k && Date.parse(e.updated) <= Date.parse(k.updated)) continue;
+        const d = decided[rowKey(feed, e.id)];
+        if (k && k.sourceFeed === feed && Date.parse(e.updated) <= Date.parse(k.updated)) continue;
         if (d && Date.parse(e.updated) <= Date.parse(d.updated)) continue;
-        const sr = sigrej[e.id];
+        const sr = sigrej[rowKey(feed, e.id)];
         if (sr && sr.keys === keySet && Date.parse(e.updated) <= Date.parse(sr.updated)) continue;
         // At capacity, anything not newer than the oldest retained entry would be evicted at once.
         if (!k && floor !== undefined && Date.parse(e.updated) <= floor && e.type !== HEARTBEAT) continue;
@@ -589,6 +624,13 @@ export class Group {
       // 3a. Cheap checks: size limits.
       if ((e.payload?.length ?? 0) > LIMITS.payload || (e.summary?.length ?? 0) > LIMITS.summary || (e.content?.length ?? 0) > LIMITS.content) {
         reject(e, feed, ["entry exceeds hub size limits"], ["size"]);
+        continue;
+      }
+      // 3a'. An id belongs to the member whose entry the hub accepted first: another member's entry
+      // under it is rejected, never taken as an edit (it would replace that member's post).
+      const owner = known.get(e.id)?.sourceFeed;
+      if (owner !== undefined && owner !== feed) {
+        reject(e, feed, [`entry id ${e.id} is already used by another member of this group`], ["id-taken"]);
         continue;
       }
       // 3b. Group policy.
@@ -623,19 +665,21 @@ export class Group {
         const bindFeedOk = selfUrl === undefined || selfUrl === feed;
         if (!v.ok || !bindFeedOk) {
           // Not final: the member's keys may have rotated since the hub last fetched its card.
-          if (!sigrej[e.id]) count(st, ["signature"]);
-          sigrej[e.id] = { updated: e.updated, keys: keySet, feed };
+          forgetLegacy(e.id);
+          if (!sigrej[rowKey(feed, e.id)]) count(st, ["signature"]);
+          sigrej[rowKey(feed, e.id)] = { updated: e.updated, keys: keySet, feed };
           restore();
           const held = card.unannounced?.length ? ["held: signed with a key that has no rotation statement or owner pin (keyContinuity hold)"] : [];
           logRejection({ id: e.id, feed, at: now, reasons: [...held, ...v.checks.filter((c) => !c.ok).map((c) => c.message), ...(bindFeedOk ? [] : [`feed rel=self ${selfUrl} differs from the member URL ${feed}`])] });
           continue;
         }
       }
-      delete sigrej[e.id];
+      delete sigrej[rowKey(feed, e.id)];
       st.lastSignal = Math.max(st.lastSignal ?? 0, Math.min(Date.parse(e.updated), now));
       if (heartbeat) {
         // Absorbed, not merged: a heartbeat only proves the member is alive.
-        decided[e.id] = { updated: e.updated, feed };
+        forgetLegacy(e.id);
+        decided[rowKey(feed, e.id)] = { updated: e.updated, feed };
         st.lastHeartbeatAt = now;
         track(st).heartbeats++;
         continue;
@@ -643,8 +687,9 @@ export class Group {
       st.budget.n++;
       if (e.type === "reaction" && e.inReplyTo) {
         // One vote per reacting entry; an edited reaction replaces its earlier value.
-        react[e.id] = { target: e.inReplyTo, reaction: e.reaction! };
-        decided[e.id] = { updated: e.updated, feed };
+        forgetLegacy(e.id);
+        react[rowKey(feed, e.id)] = { target: e.inReplyTo, reaction: e.reaction! };
+        decided[rowKey(feed, e.id)] = { updated: e.updated, feed };
         reactionsChanged = true;
         continue;
       }
@@ -663,16 +708,16 @@ export class Group {
     // Bookkeeping is kept only while the member still serves the entry (diff on 200). A reaction's
     // record also stays while its target is retained, because the tally is derived from it.
     for (const { feed, present } of served) {
-      for (const [id, d] of Object.entries(decided)) {
-        if (d.feed !== feed || present.has(id)) continue;
-        if (react[id]) {
-          if (known.has(react[id].target)) continue;
-          delete react[id];
+      for (const [key, d] of Object.entries(decided)) {
+        if (d.feed !== feed || present.has(rowId(key))) continue;
+        if (react[key]) {
+          if (known.has(react[key].target)) continue;
+          delete react[key];
           reactionsChanged = true;
         }
-        delete decided[id];
+        delete decided[key];
       }
-      for (const [id, r] of Object.entries(sigrej)) if (r.feed === feed && !present.has(id)) delete sigrej[id];
+      for (const [key, r] of Object.entries(sigrej)) if (r.feed === feed && !present.has(rowId(key))) delete sigrej[key];
     }
 
     if (reactionsChanged) {
@@ -940,6 +985,7 @@ export class Group {
       for (const [k, v] of Object.entries((g.decided ?? {}) as Record<string, string | Full["decided"][string]>)) f.decided[k] = typeof v === "string" ? { updated: v } : v;
       for (const [k, v] of Object.entries((g.sigRejected ?? {}) as Full["sigrej"])) f.sigrej[k] = v;
       for (const [k, v] of Object.entries((g.reactionsBy ?? {}) as Full["react"])) f.react[k] = v;
+      rekeyRows(f);
       f.entries.sort((a, b) => Date.parse(b.updated) - Date.parse(a.updated));
       this.full = f;
       this.subs = {};

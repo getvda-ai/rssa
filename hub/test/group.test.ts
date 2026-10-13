@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Hub, groupId, memoryStore } from "../src/hub.ts";
-import { MAX_SUBSCRIBERS } from "../src/group.ts";
+import { MAX_SUBSCRIBERS, rowKey } from "../src/group.ts";
 import { keyFromSeed, signEntry, type RssaEntry } from "../../packages/sdk-js/src/index.ts";
 import { POLICY, T0, buildGroup, cardUrl, entryFor, feedUrl, iso, publish, seed, type Group as G } from "../../scripts/synthetic.ts";
 
@@ -150,7 +150,7 @@ test("bookkeeping is pruned when an entry leaves its member's feed (diff on 200)
   publish(g.web, 1, [...g.entries[1], ack]);
   tick(60_000);
   await hub.refresh(id);
-  assert.ok(store.m.has(`r:${id}:decided:${bad.id}`));
+  assert.ok(store.m.has(`r:${id}:decided:${rowKey(feedUrl(0), bad.id)}`));
   assert.equal((await status(hub, id)).rejected.filter((r: any) => r.id === bad.id).length, 1);
   const tally = await (await hub.handle(new Request(`https://hub.test/g/${id}/reactions.json`))).json() as any;
   assert.deepEqual(tally[g.entries[0][0].id], { ack: 1 });
@@ -162,9 +162,9 @@ test("bookkeeping is pruned when an entry leaves its member's feed (diff on 200)
   publish(g.web, 1, [...g.entries[1], n1]);
   tick(60_000);
   await hub.refresh(id);
-  assert.ok(!store.m.has(`r:${id}:decided:${bad.id}`), "the rejected post's record is pruned once its feed no longer serves it");
+  assert.ok(!store.m.has(`r:${id}:decided:${rowKey(feedUrl(0), bad.id)}`), "the rejected post's record is pruned once its feed no longer serves it");
   assert.equal((await status(hub, id)).rejected.filter((r: any) => r.id === bad.id).length, 1, "and the rejection was not re-logged");
-  assert.ok(store.m.has(`r:${id}:react:${ack.id}`), "the reaction is kept while its target is retained");
+  assert.ok(store.m.has(`r:${id}:react:${rowKey(feedUrl(1), ack.id)}`), "the reaction is kept while its target is retained");
   const tally2 = await (await hub.handle(new Request(`https://hub.test/g/${id}/reactions.json`))).json() as any;
   assert.deepEqual(tally2[g.entries[0][0].id], { ack: 1 });
 });
@@ -220,4 +220,90 @@ test("budget guards: subscriber cap per group; unknown group ids never reach a g
   assert.equal((await hub.handle(new Request("https://hub.test/g/0123456789ab/feed.atom"))).status, 404);
   assert.equal((hub as any).local.size, groupsBefore, "no group instance (in production: no Durable Object) for an unknown id");
   void store;
+});
+
+// ---------------- entry ids are per member (hub 0.3.1) ----------------
+
+const members = async (hub: Hub, id: string) => (await (await hub.handle(new Request(`https://hub.test/g/${id}/members.json`))).json()) as any;
+const groupFeed = async (hub: Hub, id: string) => (await hub.handle(new Request(`https://hub.test/g/${id}/feed.atom`))).text();
+
+test("another member's entry under an accepted id is rejected as id-taken, not taken as an edit; the owner can still edit", async () => {
+  const g = await buildGroup(3, 2, { etags: true });
+  const { hub, tick } = setup(g);
+  const { id } = await hub.register(POLICY);
+  await hub.refresh(id);
+  const target = g.entries[0][0];
+  const squat = await signEntry({ ...target, updated: later(1), title: "squatted title", summary: "squatted", sig: undefined, payload: undefined } as RssaEntry, feedUrl(1), g.keys[1]);
+  publish(g.web, 1, [...g.entries[1], squat]);
+  tick(60_000);
+  await hub.refresh(id);
+  let xml = await groupFeed(hub, id);
+  assert.ok(!xml.includes("squatted title"), "the other member's entry did not replace the owner's post");
+  assert.ok(xml.includes(target.title!), "the owner's post is still in the group feed");
+  let m1 = (await members(hub, id)).members.find((x: any) => x.feed === feedUrl(1));
+  assert.deepEqual([m1.rejected["id-taken"], m1.edits], [1, 0]);
+  // Re-reading the squatter's (unchanged) feed does not log the rejection again.
+  tick(600_000);
+  await hub.refresh(id);
+  m1 = (await members(hub, id)).members.find((x: any) => x.feed === feedUrl(1));
+  assert.equal(m1.rejected["id-taken"], 1);
+  // The owner's own edit still goes through (its bookkeeping was not overwritten by the squatter's).
+  const edit = await signEntry({ ...target, updated: later(2), title: "owner edit", sig: undefined, payload: undefined } as RssaEntry, feedUrl(0), g.keys[0]);
+  publish(g.web, 0, [edit, ...g.entries[0].slice(1)]);
+  tick(60_000);
+  await hub.refresh(id);
+  xml = await groupFeed(hub, id);
+  assert.ok(xml.includes("owner edit"));
+  assert.equal((await members(hub, id)).members.find((x: any) => x.feed === feedUrl(0)).edits, 1);
+});
+
+test("two members' heartbeats with the same id and time are both absorbed (the GOSCE 'silent' symptom)", async () => {
+  const g = await buildGroup(3, 1, { etags: true });
+  const { hub, tick } = setup(g);
+  const { id } = await hub.register(POLICY);
+  await hub.refresh(id);
+  // As in production: each feed's run pings separately, so the two heartbeats arrive in different refreshes.
+  for (const i of [0, 1]) {
+    const hb = await signEntry({ id: "urn:uuid:shared-heartbeat", updated: later(1), title: "heartbeat", type: "agent.heartbeat" } as RssaEntry, feedUrl(i), g.keys[i]);
+    publish(g.web, i, [...g.entries[i], hb]);
+    tick(60_000);
+    await hub.refresh(id);
+  }
+  const ms = (await members(hub, id)).members;
+  assert.deepEqual([0, 1].map((i) => ms.find((x: any) => x.feed === feedUrl(i)).heartbeats), [1, 1]);
+});
+
+test("two members' reactions with the same entry id are both tallied", async () => {
+  const g = await buildGroup(3, 1, { etags: true });
+  const { hub, tick } = setup(g);
+  const { id } = await hub.register(POLICY);
+  await hub.refresh(id);
+  for (const i of [1, 2]) {
+    const r = await signEntry({ id: "tag:x,2026:same-ack", updated: later(1), type: "reaction", inReplyTo: g.entries[0][0].id, reaction: "ack", title: "ack", summary: "ack" } as RssaEntry, feedUrl(i), g.keys[i]);
+    publish(g.web, i, [...g.entries[i], r]);
+  }
+  tick(60_000);
+  await hub.refresh(id);
+  const tally = await (await hub.handle(new Request(`https://hub.test/g/${id}/reactions.json`))).json() as any;
+  assert.equal(JSON.stringify(tally).match(/"ack":(\d+)/)?.[1], "2");
+});
+
+test("bookkeeping rows saved by id alone (before 0.3.1) are rekeyed by feed on the next commit", async () => {
+  const g = await buildGroup(3, 2, { etags: true });
+  const { hub, mk, store, tick } = setup(g);
+  const { id } = await hub.register(POLICY);
+  await hub.refresh(id);
+  const bad = await signEntry({ id: "tag:perf.test,2026:a0-bad", updated: later(1), type: "brief.published", title: "x", summary: "s".repeat(300), content: "body" } as RssaEntry, feedUrl(0), g.keys[0]);
+  publish(g.web, 0, [...g.entries[0], bad]);
+  tick(60_000);
+  await hub.refresh(id);
+  const newKey = `r:${id}:decided:${rowKey(feedUrl(0), bad.id)}`, oldKey = `r:${id}:decided:${bad.id}`;
+  // Rewrite the row the way hub 0.3.0 stored it, then load the group cold.
+  store.m.set(oldKey, store.m.get(newKey)!);
+  store.m.delete(newKey);
+  const cold = mk();
+  tick(600_000);
+  await cold.refresh(id);
+  assert.ok(store.m.has(newKey) && !store.m.has(oldKey), "rekeyed on commit");
+  assert.equal((await members(cold, id)).members.find((x: any) => x.feed === feedUrl(0)).rejected["summary-too-long"], 1, "not re-rejected");
 });

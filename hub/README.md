@@ -9,6 +9,8 @@ A minimal hub for RSS-A groups, as a Cloudflare Worker with one Durable Object p
 - serves one **merged Atom feed** per group, cached with an ETag. Each entry keeps its signature and names its
   member feed in `atom:source`, so readers verify it themselves;
 - **tallies reactions** instead of threading them;
+- treats entry ids as **per member**: an id belongs to the member whose entry it accepted first; another member's
+  entry under that id is rejected (`id-taken`), never taken as an edit of the first member's post;
 - speaks **WebSub** (publish pings; subscribe with verification of intent; push with `X-Hub-Signature`);
 - keeps the **last known key** through a card outage (`identityGrace`), follows **key rotation statements**, and
   records unannounced key changes, or holds their posts under `keyContinuity: hold`; the identity log is `identity.json`;

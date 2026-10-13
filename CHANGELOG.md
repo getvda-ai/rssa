@@ -1,5 +1,20 @@
 # Changelog
 
+## hub 0.3.1: entry ids are per member (2026-10-13)
+
+Hub only; the spec, SDKs and the extension URI are unchanged.
+
+- **Fix:** the hub kept its per-entry bookkeeping by entry id alone, but ids are only unique within one feed
+  ([core.md §3](spec/core.md)). Two effects, both found on the GOSCE feeds: one member's heartbeat hid another's
+  with the same id and an equal or earlier time (a live feed showed `silent`), and a member could replace another
+  member's post in the group feed by publishing an entry with the same id and a later time (its own signature
+  verified, so the hub took it as an edit). Bookkeeping is now kept per (member feed, id); an id already used by
+  another member's accepted entry is rejected with the new code `id-taken`. Rows saved by earlier hubs are rekeyed
+  on load.
+- When two members first use the same id in one refresh, the hub's one global order (updated, then policy order)
+  decides which is accepted. Hubless readers (`readGroup`/`read_group`) are unchanged: they list both entries,
+  each attributed to its own feed.
+
 ## 0.2.0: key continuity, liveness, group-wide rate caps (2026-10-10)
 
 Spec v0.2 is a strict superset of v0.1: optional card params, policy settings and one entry type, all ignored
