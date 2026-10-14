@@ -220,7 +220,7 @@ cd packages/sdk-py && python -m pytest
 | Hub | Operator | Status |
 |---|---|---|
 | Reference hub (this repo, [`hub/`](hub/)) | you: deploy it to Cloudflare Workers in a few minutes | available |
-| `hub.rssa.getvda.ai` | getvda (Rawson Consulting B.V.) | live, preview (one group so far: the GOSCE trial, see [docs/ADOPTION.md](docs/ADOPTION.md)) |
+| `hub.rssa.getvda.ai` | getvda (Rawson Consulting B.V.) | live, preview: three groups, all run by getvda, so none of them is outside adoption yet: the GOSCE trial ([docs/ADOPTION.md](docs/ADOPTION.md)), its `strict` test group, and the five getvda.ai feeds |
 
 No hub is required for open groups or two-party links. Switching hubs is one line in a group's
 `policy.json`. Before v1.0 we're looking for a second, independent hub operator.

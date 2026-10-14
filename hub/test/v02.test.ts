@@ -360,3 +360,26 @@ test("member rows written before membership verdicts existed are re-checked in f
   assert.match(m1.problem, /two-way membership/);
 });
 
+
+test("owner pins count only in a signed policy: an unsigned open-group policy cannot pin a key to a member", async () => {
+  const g = await buildGroup(1, 1, { etags: true });
+  await setPolicy(g, { preset: "open", overrides: { keyContinuity: "hold" } });
+  const { hub, tick } = setup(g);
+  const { id } = await hub.register(POLICY);
+  await hub.refresh(id);
+  // An attacker swaps the member's card key and, able to write the policy file, pins that key without the owner's signature.
+  const evil = await keyFromSeed(seed(7101));
+  setCard(g, 0, { keys: { keys: [evil.publicJwk] } });
+  const e = await post(g, 0, 1, {}, evil);
+  const p = JSON.parse(g.web.docs.get(POLICY)!) as GroupPolicy;
+  const { sig: _s, ...unsigned } = p;
+  g.web.docs.set(POLICY, JSON.stringify({ ...unsigned, version: p.version + 1, members: [{ feed: feedUrl(0), keys: [await thumbprint(evil.publicJwk)] }] }));
+  tick(16 * 60_000);
+  assert.deepEqual(await hub.refresh(id), [], "the unsigned pin does not release the post");
+  assert.equal((await get(hub, id, "identity.json")).members[0].held, true);
+  assert.match((await get(hub, id, "status.json")).members[0].problem, /owner pins ignored/);
+  // The same pin, signed by the owner, does.
+  await setPolicy(g, { members: [{ feed: feedUrl(0), keys: [await thumbprint(evil.publicJwk)] }] });
+  tick(60_000);
+  assert.deepEqual(await hub.refresh(id), [e.id]);
+});

@@ -101,6 +101,9 @@ interface Meta {
   policyUrl: string;
   policy?: GroupPolicy;
   policyProblem?: string;
+  /** Whether the current policy's signature verified. Owner pins count only then: an open group may run on an
+   *  unsigned policy, and a pin from it would let whoever can write that file take over a member's identity. */
+  policySigned?: boolean;
   /** Feeds that joined an open group through POST /g/:id/join. */
   joined: string[];
   rejected: Rejection[];
@@ -468,6 +471,7 @@ export class Group {
         if (!v.ok && (settings.signatures === "required" || p.preset !== "open")) throw new Error(`policy signature: ${v.error}`);
         if (m.policy && p.version < m.policy.version) throw new Error(`policy version ${p.version} is older than ${m.policy.version}; keeping the newer one`);
         m.policy = p;
+        m.policySigned = v.ok;
         m.policyProblem = v.ok ? undefined : `unsigned policy accepted because the preset is open (${v.error})`;
       } catch (e) {
         m.policyProblem = (e as Error).message;
@@ -530,7 +534,9 @@ export class Group {
     // And so is a member without a passing membership verdict (including rows written before verdicts existed).
     const sigrejFeeds = new Set(Object.values(sigrej).map((x) => x.feed));
     // The owner changed a member's pins: re-evaluate its keys now, even if its feed is unchanged.
-    const pinsOf = (feed: string) => { const k = policy.members.find((x) => x.feed === feed)?.keys; return Array.isArray(k) ? [...k].sort().join(",") : ""; };
+    const declaredPins = (feed: string) => { const k = policy.members.find((x) => x.feed === feed)?.keys; return Array.isArray(k) ? k : []; };
+    const pinsFor = (feed: string) => (m.policySigned ? declaredPins(feed) : []);
+    const pinsOf = (feed: string) => [...pinsFor(feed)].sort().join(",");
     const pinsChanged = (feed: string) => !!f.cards[feed] && (f.cards[feed].pins ?? "") !== pinsOf(feed);
     const unconditional = (feed: string) =>
       (opts.forceCard && feed === opts.only) || !!f.members[feed]?.held || f.members[feed]?.member !== true || pinsChanged(feed) ||
@@ -578,8 +584,7 @@ export class Group {
       try { parsed = parseFeed(body); } catch (e) { st.ok = false; st.problem = (e as Error).message; continue; }
 
       // 2. Membership: two-way, required modules declared, cadence within the group's maxCadence.
-      const pins = policy.members.find((x) => x.feed === feed)?.keys ?? [];
-      const card = await this.card(feed, parsed.cardUrl, s, opts.forceCard && feed === opts.only, Array.isArray(pins) ? pins : []);
+      const card = await this.card(feed, parsed.cardUrl, s, opts.forceCard && feed === opts.only, pinsFor(feed));
       if ("error" in card) { st.ok = st.member = false; st.problem = card.error; continue; }
       if (!card.groups.some((x) => groupRef.includes(x))) { st.ok = st.member = false; st.problem = "the member's Agent Card does not list this group (two-way membership)"; continue; }
       const missing = (policy.requiredModules ?? []).filter((x) => !card.modules.includes(x));
@@ -589,6 +594,7 @@ export class Group {
       st.ok = st.member = true;
       track(st);
       const notes: string[] = [];
+      if (!m.policySigned && declaredPins(feed).length) notes.push("owner pins ignored: the group policy's signature does not verify");
       if (card.staleSince) notes.push(`identity stale since ${new Date(card.staleSince).toISOString()} (card unreachable; using last known key)`);
       if (card.forks?.length) notes.push(`key ${card.forks.join(", ")} announced two different successors; neither is trusted`);
       if (card.unannounced?.length) notes.push(`posts signed with unannounced key ${card.unannounced.join(", ")} are held (keyContinuity hold) until a rotation statement or an owner pin`);

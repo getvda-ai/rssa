@@ -1,5 +1,15 @@
 # Changelog
 
+## hub 0.3.2: owner pins need a signed policy (2026-10-14)
+
+- **Security fix (hub):** an `open` group may run on an unsigned `policy.json`, and the hub honoured owner pins
+  (`members[].keys`) from it. Whoever could write that file could pin their own key to a member and take over its
+  identity, bypassing the owner signature that [sign.md §9](spec/sign.md) relies on. The hub now ignores pins
+  unless the policy's signature verifies, and says so in the member's `problem` on `status.json`.
+- **Spec (clarification of v0.2, sign.md §9):** verifiers MUST ignore pins in an unsigned policy.
+- **Validator (next `@rss-a/validate` release):** warns `policy-pins` when an unsigned policy contains pins.
+- Hubless readers (`readGroup`/`read_group`) never used pins; unchanged.
+
 ## hub 0.3.1: entry ids are per member (2026-10-13)
 
 Hub only; the spec, SDKs and the extension URI are unchanged.

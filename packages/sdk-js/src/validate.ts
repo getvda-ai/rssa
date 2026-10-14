@@ -286,6 +286,9 @@ export async function validatePolicyText(text: string, policyUrl: string, o: Val
   const v = await verifyPolicy(p, fetcher);
   if (v.ok) r.pass("policy-signature", `policy signed by owner (kid ${v.kid})`);
   else (preset === "open" ? r.warn.bind(r) : r.fail.bind(r))("policy-signature", `policy signature: ${v.error}`, "Sign it with `rssa sign-policy policy.json --key owner-key.json`.");
+  if (!v.ok && p.members.some((m) => Array.isArray(m.keys) && m.keys.length)) {
+    r.warn("policy-pins", "owner pins (members[].keys) are ignored because the policy's signature does not verify", "Pins recover a member's identity, so they need the owner's signature: `rssa sign-policy policy.json --key owner-key.json`.");
+  }
   const dist = presetDistance(p);
   if (!dist.length) r.pass("policy-preset", `uses preset ${preset} unchanged`);
   for (const d of dist) r.info("policy-override", `${d.setting}: ${JSON.stringify(d.preset)} → ${JSON.stringify(d.value)}${d.relaxes ? " (relaxes the preset)" : " (stricter)"}`);

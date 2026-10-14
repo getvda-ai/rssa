@@ -39,6 +39,11 @@ test("policy: new settings are type-checked and owner pins must be thumbprints",
   assert.deepEqual(await fails({ members: [{ feed: base.members[0].feed, keys: ["not-a-thumbprint"] }] }), ["policy-member"]);
   const info = (await run({ overrides: { maxPostsPerMember: 100 } })).find((f) => f.code === "policy-override" && f.level === "info");
   assert.match(info!.message, /maxPostsPerMember: 0 → 100 \(stricter\)/, "a cap where there was none is stricter");
+  // Pins in an unsigned (open-group) policy are ignored by hubs, and the validator says so.
+  const pinned = { ...base, preset: "open", members: [{ feed: base.members[0].feed, keys: [await thumbprint(owner.publicJwk)] }] };
+  const unsigned = await validatePolicyText(JSON.stringify(pinned), base.group, { fetcher, deep: false });
+  assert.deepEqual(unsigned.filter((f) => f.code === "policy-pins").map((f) => f.level), ["warn"]);
+  assert.equal((await run({ members: pinned.members })).filter((f) => f.code === "policy-pins").length, 0, "a signed policy's pins are fine");
 });
 
 test("feed: heartbeats and reactions are not told to add a summary; a second heartbeat entry warns", async () => {

@@ -153,7 +153,9 @@ the keys or pins change.
 
 **Recovery: owner pins.** If the old key is lost or compromised there is no one to sign a statement. The group
 owner then pins the member's new key in a new policy version, `members[].keys: ["<thumbprint>"]`. A pinned key
-counts as announced. Recovery therefore goes through a human gate: the owner's signature.
+counts as announced. Recovery therefore goes through a human gate: the owner's signature. Pins count only in a
+policy whose signature verifies; verifiers MUST ignore pins in an unsigned policy (an `open` group may run on
+one), because whoever can write that file could otherwise pin their own key to any member.
 
 **Limits.** The first key a verifier sees is trusted on first use. A hubless reader that keeps no state does TOFU
 on every run and cannot detect a swap; continuity is for hubs and readers that remember keys. Statements prove
