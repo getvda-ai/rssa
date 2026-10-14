@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased: first-run fixes from a clean-machine test (2026-10-14)
+
+A fresh install (empty npm cache, new virtualenv, and a clean Linux machine on Python 3.10 and Node 20) ran
+the README quick start end to end. Everything worked except two first-run steps:
+
+- **Docs:** step 4 of the quick start said `./bin/rssa validate`, which exists only in a clone of this repo. It
+  now says `npx @rss-a/validate`, with `python -m rssa verify <feed>` for readers without Node. Same in AGENTS.md.
+- **Python CLI:** `add-to-card` told users to run `rssa validate`, a command the Python CLI doesn't have. It now
+  points at `npx @rss-a/validate` or `python -m rssa verify`. (Next PyPI release.)
+- **Validator:** an agent URL with a path (an agent hosted under a prefix) that answers 404 or an HTML page now
+  finds its card under `<url>/.well-known/`, as a bare origin already did. (Next `@rss-a/validate` release.)
+
 ## hub 0.3.2: owner pins need a signed policy (2026-10-14)
 
 - **Security fix (hub):** an `open` group may run on an unsigned `policy.json`, and the hub honoured owner pins

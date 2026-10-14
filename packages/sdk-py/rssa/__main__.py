@@ -10,7 +10,7 @@ from .canonical import strict_parse
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="rssa", description="RSS-A (RSS for Agents). Full validation: rssa validate <url> (the Node CLI, bin/rssa in the repo)")
+    ap = argparse.ArgumentParser(prog="rssa", description="RSS-A (RSS for Agents). Full validation (card, feed, keys, signatures, groups): npx @rss-a/validate <url> (Node 20+)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     k = sub.add_parser("keygen", help="create an Ed25519 key; prints the public JWKS for your card")
     k.add_argument("--out", default="rssa-key.json")
@@ -56,7 +56,7 @@ def main(argv=None) -> int:
         with open(args.card, "w", encoding="utf-8") as f:
             json.dump(card, f, indent=2, ensure_ascii=False)
             f.write("\n")
-        print(f"Added the RSSA extension to {args.card}. Next: publish {args.feed}, then sign the card (rssa sign-card) and run: rssa validate <your agent URL>")
+        print(f"Added the RSSA extension to {args.card}. Next: publish {args.feed}, then sign the card (rssa sign-card) and run: npx @rss-a/validate <your agent URL> (Node 20+), or python -m rssa verify <feed URL>")
         return 0
     if args.cmd == "sign-card":
         with open(args.card, encoding="utf-8") as f:

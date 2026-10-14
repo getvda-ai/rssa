@@ -331,8 +331,10 @@ export async function validate(target: string, o: ValidateOptions & { text?: str
   let url = target;
   if (text === undefined) {
     let res = await fetcher(url, { headers: { "user-agent": USER_AGENT, accept: "application/json, application/atom+xml, */*" } });
-    // A bare origin means "find my Agent Card".
-    if (/^https?:\/\/[^/]+\/?$/.test(url)) {
+    // A bare origin means "find my Agent Card". So does an agent URL with a path (an agent hosted under a
+    // prefix) that answers 404 or an HTML page.
+    const html = /text\/html/i.test(res.headers.get("content-type") ?? "");
+    if (/^https?:\/\/[^/]+\/?$/.test(url) || (!/\.(json|xml|atom|rss)$/i.test(new URL(url).pathname) && (!res.ok || html))) {
       for (const path of ["/.well-known/agent-card.json", "/.well-known/agent.json"]) {
         const u = url.replace(/\/$/, "") + path;
         const r2 = await fetcher(u, { headers: { "user-agent": USER_AGENT } }).catch(() => undefined);

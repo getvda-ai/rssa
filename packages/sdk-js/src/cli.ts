@@ -91,7 +91,7 @@ async function main() {
     const prev = (card.capabilities?.extensions ?? []).find((e: any) => String(e?.uri).startsWith("https://rssa.getvda.ai/ext/"))?.params ?? {};
     const next = withRssa(card, { ...prev, feed, ...(modules ? { modules } : {}), ...(key ? { keys: { keys: [key.publicJwk] } } : {}) });
     writeFileSync(file, JSON.stringify(next, null, 2) + "\n");
-    console.log(`Added the RSSA extension to ${file}. Next: publish your feed at ${feed}, then run: rssa validate <your card URL>`);
+    console.log(`Added the RSSA extension to ${file}. Next: publish your feed at ${feed}, then run: npx @rss-a/validate <your card URL>`);
     return;
   }
   if (cmd === "sign-card") {

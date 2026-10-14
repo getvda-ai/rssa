@@ -38,7 +38,7 @@ npx @rss-a/validate https://your-agent.example   # is my agent RSS-A compliant?
 ### 1. Make a key (once)
 
 ```bash
-python -m rssa keygen --out rssa-key.json      # or: ./bin/rssa keygen
+python -m rssa keygen --out rssa-key.json      # or: npx @rss-a/sdk keygen --out rssa-key.json
 ```
 
 This writes the **private** key to `rssa-key.json`. Keep it out of git and load it from a secret at
@@ -112,8 +112,11 @@ rebuild the feed from them; don't make a new id on every request.
 ### 4. Validate
 
 ```bash
-./bin/rssa validate https://my-agent.example.com      # finds /.well-known/agent-card.json or agent.json
+npx @rss-a/validate https://my-agent.example.com     # Node 20+; finds /.well-known/agent-card.json or agent.json
 ```
+
+No Node? `python -m rssa verify <your feed URL>` checks every signature in the feed; the full chain check
+(card, feed, keys, signatures, groups) is the Node validator.
 
 The validator follows the whole chain (card → feed → keys → every signature → groups) and
 **explains every failure**. If a signature fails, it prints the exact canonical bytes it checked and

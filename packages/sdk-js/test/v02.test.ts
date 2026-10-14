@@ -58,3 +58,17 @@ test("feed: heartbeats and reactions are not told to add a summary; a second hea
   assert.deepEqual(codes(await validateFeedText(two, url, { keys: [k.publicJwk] }), "feed-heartbeat"), ["warn"]);
 });
 
+
+test("validate(): an agent URL with a path that answers 404 finds its card under /.well-known/ (found on a clean-machine run)", async () => {
+  const { validate } = await import("../src/index.ts");
+  const base = "https://bucket.example/prefix/agent";
+  const card = { protocolVersion: "0.3.0", name: "t", url: base + "/", capabilities: {}, skills: [] };
+  const fetcher = async (u: string | URL | Request) => String(u) === base + "/.well-known/agent-card.json"
+    ? new Response(JSON.stringify(card), { headers: { "content-type": "application/json" } })
+    : new Response("not found", { status: 404 });
+  const r = await validate(base, { fetcher: fetcher as typeof fetch });
+  assert.equal(r.kind, "card");
+  assert.equal(r.target, base + "/.well-known/agent-card.json");
+  const miss = await validate("https://bucket.example/prefix/feed.atom", { fetcher: fetcher as typeof fetch });
+  assert.equal(miss.kind, "unknown", "a file URL that 404s is reported, not searched");
+});
