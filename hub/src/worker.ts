@@ -3,15 +3,19 @@
 // - GroupDO: one group's rows in SQLite; its own alarm polls member feeds every 5 minutes.
 // - queue: WebSub delivery, one message per refresh that accepted something (no DO wall time spent on subscribers).
 // - scheduled (hourly): registers GROUPS and re-arms any group whose alarm is missing.
+// - NetworkDO: the agent network (spec/network.md), one object for the whole hub.
 
 import { DurableObject } from "cloudflare:workers";
 import { Hub, groupId, type GroupHandle } from "./hub.ts";
 import { Group, deliver, type DeliveryMessage } from "./group.ts";
 import { Directory, MAX_ROW_BYTES, type GroupStore, type Store } from "./store.ts";
+import { Network } from "./network.ts";
+import { keyFromJwk, type RssaKey } from "../../packages/sdk-js/src/index.ts";
 
 export interface Env {
   RSSA: KVNamespace;
   GROUP: DurableObjectNamespace<GroupDO>;
+  NETWORK: DurableObjectNamespace<NetworkDO>;
   DELIVERY: Queue<DeliveryMessage>;
   LIMIT_WRITE?: RateLimit;
   LIMIT_READ?: RateLimit;
@@ -19,6 +23,12 @@ export interface Env {
   HUB_URL?: string;
   /** Comma-separated policy URLs registered by the hourly cron (optional; POST /groups also works). */
   GROUPS?: string;
+  /** Private JWK (JSON) that signs the network's directory feed and the hub's Agent Card. Optional. */
+  HUB_SIGNING_KEY?: string;
+  /** JSON object: category id → policy URL of its open group for signed posts. */
+  NETWORK_GROUPS?: string;
+  /** "off" switches unsigned posts off. */
+  NETWORK_POSTS?: string;
 }
 
 const POLL_MS = 5 * 60_000;
@@ -121,6 +131,32 @@ export class GroupDO extends DurableObject<Env> {
   }
 }
 
+/** The agent network: one Durable Object, so it is the single writer for the directory. */
+export class NetworkDO extends DurableObject<Env> {
+  private rows: GroupStore;
+  private n?: Promise<Network>;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.rows = sqlRows(ctx);
+  }
+
+  private network(): Promise<Network> {
+    return (this.n ??= (async () => {
+      let key: RssaKey | undefined;
+      if (this.env.HUB_SIGNING_KEY) key = await keyFromJwk(this.env.HUB_SIGNING_KEY);
+      let groups: Record<string, string> | undefined;
+      try { groups = this.env.NETWORK_GROUPS ? JSON.parse(this.env.NETWORK_GROUPS) : undefined; } catch { groups = undefined; }
+      return new Network({ rows: this.rows, fetch: timedFetch, now: () => Date.now(), base: () => base(this.env), key, groups, posts: this.env.NETWORK_POSTS !== "off" });
+    })());
+  }
+
+  async handle(req: Request, admin: boolean): Promise<Response> { return (await this.network()).fetch(req, admin); }
+  async recheck(limit: number) { return (await this.network()).recheck(limit); }
+}
+
+const networkStub = (env: Env) => env.NETWORK.get(env.NETWORK.idFromName("network"));
+
 const groupHandle = (env: Env) => (id: string): GroupHandle => {
   const stub = env.GROUP.get(env.GROUP.idFromName(id));
   return {
@@ -137,6 +173,7 @@ const idCache: { ids?: string[]; at?: number } = {};
 const hub = (env: Env, ctx?: ExecutionContext) => new Hub({
   store: kv(env.RSSA), fetch: timedFetch, adminToken: env.HUB_ADMIN_TOKEN, baseUrl: env.HUB_URL,
   group: groupHandle(env), defer: ctx ? (p) => ctx.waitUntil(p) : undefined, legacy: kv(env.RSSA), idCache,
+  network: (req, admin) => networkStub(env).handle(req, admin),
 });
 
 export default {
@@ -167,6 +204,8 @@ export default {
       for (const id of await h.dir.groupIds()) {
         try { await env.GROUP.get(env.GROUP.idFromName(id)).ensure(id); } catch { /* next hour */ }
       }
+      // Members' cards, a few an hour (membership only; no uptime probing).
+      try { await networkStub(env).recheck(10); } catch { /* next hour */ }
     })());
   },
 } satisfies ExportedHandler<Env, DeliveryMessage>;

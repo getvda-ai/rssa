@@ -1,0 +1,206 @@
+// The agent network (spec/network.md): listing, the three levels, unsigned posts and their limits,
+// opt-out, re-checks, and the hub's A2A interface.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { Hub, memoryStore } from "../src/hub.ts";
+import { NET_LIMITS, RECHECK_MS, categorise } from "../src/network.ts";
+import { keyFromSeed, parseFeed, validateCard, verifyCardSignatures, verifyEntry, withRssa } from "../../packages/sdk-js/src/index.ts";
+
+const BASE = "https://hub.test";
+const NET = `${BASE}/network`;
+const card = (n: number) => `https://a${n}.example/.well-known/agent-card.json`;
+const seed = (n: number) => Uint8Array.from({ length: 32 }, (_, i) => (i * 7 + n) & 0xff);
+
+function web() {
+  const docs = new Map<string, string>();
+  const fetcher = async (u: string) => {
+    const d = docs.get(String(u));
+    return d === undefined ? new Response("not found", { status: 404 }) : new Response(d);
+  };
+  return { docs, fetcher };
+}
+const a2aCard = (n: number, extra: Record<string, unknown> = {}) => ({
+  name: `Agent ${n}`, description: "Generates docker compose stacks for redis and postgres", url: `https://a${n}.example/a2a/`,
+  provider: { organization: `Org ${n}` }, skills: [{ id: "compose", name: "Compose", tags: ["docker"] }], ...extra,
+});
+
+async function setup(opts: { posts?: boolean } = {}) {
+  const w = web();
+  let t = Date.parse("2026-10-20T10:00:00Z");
+  const key = await keyFromSeed(seed(1));
+  const hub = new Hub({ store: memoryStore(), fetch: w.fetcher, now: () => t, adminToken: "x", baseUrl: BASE, networkOptions: { key, groups: { "developer-tools": "https://groups.test/developer-tools/policy.json" }, posts: opts.posts } });
+  const call = async (method: string, path: string, body?: unknown, admin = false) => {
+    const r = await hub.handle(new Request(`${BASE}${path}`, { method, body: body === undefined ? undefined : JSON.stringify(body), headers: admin ? { authorization: "Bearer x" } : {} }));
+    const text = await r.text();
+    let json: any; try { json = JSON.parse(text); } catch { json = undefined; }
+    return { status: r.status, json, text };
+  };
+  const list = (ns: number[]) => call("POST", "/network/admin/list", { agents: ns.map((n) => ({ card: card(n), body: a2aCard(n), source: "test" })) }, true);
+  const a2a = async (parts: unknown[]) => (await call("POST", "/a2a", { jsonrpc: "2.0", id: 1, method: "message/send", params: { message: { role: "user", messageId: "m1", parts } } })).json;
+  return { w, hub, call, list, a2a, key, tick: (ms: number) => { t += ms; } };
+}
+
+test("categorise: from the card's own words, at most three, 'other' when nothing matches", () => {
+  assert.deepEqual(categorise(a2aCard(1)), ["developer-tools"]);
+  assert.deepEqual(categorise({ name: "x", description: "nothing here" }), ["other"]);
+  assert.ok(categorise({ name: "security audit trading wallet data", description: "payment" }).length <= 3);
+});
+
+test("listing: admin only, verified false, signed directory event, hidden fields never invented", async () => {
+  const s = await setup();
+  assert.equal((await s.call("POST", "/network/admin/list", { agents: [] })).status, 401, "listing needs the admin token");
+  const r = await s.list([1, 2]);
+  assert.deepEqual(r.json, { added: 2, updated: 0, skipped: 0 });
+  assert.deepEqual((await s.list([1])).json, { added: 0, updated: 1, skipped: 0 }, "re-listing updates, never duplicates");
+  const all = (await s.call("GET", "/network/agents.json")).json;
+  assert.equal(all.listed, 2);
+  assert.equal(all.verified, 0);
+  assert.ok(all.agents.every((a: any) => a.verified === false && a.level === "listed"));
+  assert.equal(all.agents[0].provider, "Org 1", "fields come from the card");
+  const one = (await s.call("GET", `/network/agents.json?card=${encodeURIComponent(card(2))}`)).json;
+  assert.equal(one.verified, false);
+  // The directory feed is signed by the hub key published in the hub's own card.
+  const feed = await s.call("GET", "/network/feed.atom");
+  const parsed = parseFeed(feed.text);
+  assert.equal(parsed.entries.length, 2);
+  assert.equal(parsed.cardUrl, `${BASE}/.well-known/agent-card.json`);
+  for (const e of parsed.entries) {
+    assert.equal(e.type, "agent.listed");
+    assert.ok((await verifyEntry(e, `${NET}/feed.atom`, [s.key.publicJwk])).ok, "directory entries verify with the hub key");
+  }
+});
+
+test("join: needs the network line in the card; read-only member vs poster; validator agrees", async () => {
+  const s = await setup();
+  await s.list([1, 2]);
+  s.w.docs.set(card(1), JSON.stringify(a2aCard(1)));
+  const no = await s.call("POST", "/network/join", { card: card(1) });
+  assert.equal(no.status, 422);
+  assert.deepEqual(no.json.howTo.extension.params, { groups: [NET] }, "the reply carries the exact line to add");
+  // Read-only member: groups, no feed.
+  s.w.docs.set(card(1), JSON.stringify(withRssa(a2aCard(1), { groups: [NET] })));
+  const yes = await s.call("POST", "/network/join", { card: card(1) });
+  assert.equal(yes.status, 200);
+  assert.equal(yes.json.level, "member");
+  assert.equal(yes.json.verified, true);
+  // Poster: a feed too.
+  s.w.docs.set(card(2), JSON.stringify(withRssa(a2aCard(2), { feed: "https://a2.example/feed.atom", groups: [NET] })));
+  const p = await s.call("POST", "/network/join", { card: card(2) });
+  assert.equal(p.json.level, "poster");
+  assert.match(p.json.next, /groups\.test\/developer-tools/, "a poster is pointed at its category group");
+  // An agent nobody listed can join directly.
+  s.w.docs.set(card(3), JSON.stringify(withRssa(a2aCard(3), { groups: [NET] })));
+  assert.equal((await s.call("POST", "/network/join", { card: card(3) })).json.level, "member");
+  // The validator, reading through the hub, sees two-way membership.
+  const fetcher = (u: string, i?: RequestInit) => (u.startsWith(BASE) ? s.hub.handle(new Request(u, i)) : s.w.fetcher(u));
+  const f = await validateCard(JSON.parse(s.w.docs.get(card(1))!), card(1), { fetcher: fetcher as typeof fetch });
+  assert.deepEqual(f.filter((x) => x.code === "membership").map((x) => x.level), ["pass"]);
+  const ev = parseFeed((await s.call("GET", "/network/feed.atom")).text).entries.map((e) => e.type);
+  assert.equal(ev.filter((t) => t === "agent.joined").length, 3);
+});
+
+test("unsigned posts: labelled as claims, kept apart, refused for posters and reject cards, capped, switchable", async () => {
+  const s = await setup();
+  await s.list([1]);
+  const ok = await s.call("POST", "/network/post", { category: "developer-tools", card: card(1), text: "hello from 1" });
+  assert.equal(ok.status, 201);
+  assert.equal(ok.json.verified, false);
+  assert.equal((await s.call("POST", "/network/post", { category: "developer-tools", text: "anonymous" })).status, 201, "anonymous is allowed");
+  const xml = (await s.call("GET", "/network/developer-tools/unverified.atom")).text;
+  const es = parseFeed(xml).entries;
+  assert.equal(es.length, 2);
+  assert.ok(es.every((e) => e.type === "post.unverified" && /UNVERIFIED/.test(e.summary ?? "") && !e.sig), "never signed, always labelled");
+  assert.match(es.find((e) => e.content === "hello from 1")!.title!, /claimed by Agent 1/);
+  // A poster's identity posts signed only; so does a member card with unsigned: "reject".
+  s.w.docs.set(card(2), JSON.stringify(withRssa(a2aCard(2), { feed: "https://a2.example/feed.atom", groups: [NET] })));
+  await s.call("POST", "/network/join", { card: card(2) });
+  assert.equal((await s.call("POST", "/network/post", { category: "developer-tools", card: card(2), text: "fake" })).status, 403);
+  s.w.docs.set(card(3), JSON.stringify(withRssa(a2aCard(3), { groups: [NET], unsigned: "reject" })));
+  await s.call("POST", "/network/join", { card: card(3) });
+  assert.equal((await s.call("POST", "/network/post", { category: "developer-tools", card: card(3), text: "fake" })).status, 403);
+  // Bad input.
+  assert.equal((await s.call("POST", "/network/post", { category: "nope", text: "x" })).status, 400);
+  assert.equal((await s.call("POST", "/network/post", { category: "other", text: "x".repeat(NET_LIMITS.postChars + 1) })).status, 413);
+  // Per-card daily cap (two already used by card 1? one; fill to the cap).
+  for (let i = 1; i < NET_LIMITS.postsPerCardDay; i++) assert.equal((await s.call("POST", "/network/post", { category: "other", card: card(1), text: `n${i}` })).status, 201);
+  assert.equal((await s.call("POST", "/network/post", { category: "other", card: card(1), text: "over" })).status, 429);
+  s.tick(86_400_000);
+  assert.equal((await s.call("POST", "/network/post", { category: "other", card: card(1), text: "next day" })).status, 201, "the cap is per day");
+  // The kill switch.
+  const off = await setup({ posts: false });
+  assert.equal((await off.call("POST", "/network/post", { category: "other", text: "x" })).status, 503);
+});
+
+test("unsigned posts: retention per category", async () => {
+  const s = await setup();
+  for (let i = 0; i < NET_LIMITS.keepPerCategory + 5; i++) {
+    await s.call("POST", "/network/post", { category: "other", card: `https://p${i % 40}.example/card.json`, text: `p${i}` });
+    s.tick(1000);
+  }
+  const all = (await s.hub.localNetwork().fetch(new Request(`${NET}/other/unverified.atom`), false)).status;
+  assert.equal(all, 200);
+  const rows = await (s.hub as any).c.store.list("r:network:post:");
+  assert.equal(rows.length, NET_LIMITS.keepPerCategory, "the oldest posts beyond the limit are deleted");
+});
+
+test("opt-out hides and stops contact; members cannot be hidden by others; the operator can restore", async () => {
+  const s = await setup();
+  await s.list([1, 2]);
+  assert.equal((await s.call("POST", "/network/optout", { card: card(1) })).status, 200);
+  assert.equal((await s.call("GET", "/network/agents.json")).json.listed, 1);
+  await s.list([1]);
+  assert.equal((await s.call("GET", "/network/agents.json")).json.listed, 1, "re-listing does not undo an opt-out");
+  assert.equal((await s.call("POST", "/network/optout", { card: "https://never.example/card.json" })).status, 200, "unknown cards are recorded so they are never listed");
+  s.w.docs.set(card(2), JSON.stringify(withRssa(a2aCard(2), { groups: [NET] })));
+  await s.call("POST", "/network/join", { card: card(2) });
+  assert.equal((await s.call("POST", "/network/optout", { card: card(2) })).status, 409, "a member leaves by editing its own card");
+  assert.equal((await s.call("POST", "/network/admin/restore", { card: card(1) }, true)).json.restored, true);
+  assert.equal((await s.call("GET", "/network/agents.json")).json.listed, 2);
+});
+
+test("recheck: a member whose card drops the line goes back to listed; an unreachable card keeps its verdict", async () => {
+  const s = await setup();
+  for (const n of [1, 2]) s.w.docs.set(card(n), JSON.stringify(withRssa(a2aCard(n), { groups: [NET] })));
+  await s.call("POST", "/network/join", { card: card(1) });
+  await s.call("POST", "/network/join", { card: card(2) });
+  s.w.docs.set(card(1), JSON.stringify(a2aCard(1)));
+  s.w.docs.delete(card(2));
+  assert.equal(await s.hub.localNetwork().recheck(), 0, "nothing is due before the interval");
+  s.tick(RECHECK_MS);
+  assert.equal(await s.hub.localNetwork().recheck(), 2);
+  const v = async (n: number) => (await s.call("GET", `/network/agents.json?card=${encodeURIComponent(card(n))}`)).json;
+  assert.equal((await v(1)).level, "listed");
+  assert.equal((await v(2)).level, "member");
+  assert.ok(parseFeed((await s.call("GET", "/network/feed.atom")).text).entries.some((e) => e.type === "agent.left"));
+});
+
+test("A2A: signed hub card; message/send with text and data parts; errors are JSON-RPC errors", async () => {
+  const s = await setup();
+  await s.list([1, 2]);
+  const hc = (await s.call("GET", "/.well-known/agent-card.json")).json;
+  assert.equal(hc.url, `${BASE}/a2a`);
+  assert.deepEqual(hc.skills.map((x: any) => x.id), ["find_agents", "read_group", "join", "post", "optout"]);
+  assert.ok((await verifyCardSignatures(hc, [s.key.publicJwk])).ok, "the hub's card is signed with its key");
+  const help = await s.a2a([{ kind: "text", text: "hello?" }]);
+  assert.equal(help.result.kind, "message");
+  assert.match(help.result.parts[0].text, /join <card URL>/);
+  const found = await s.a2a([{ kind: "text", text: "find docker" }]);
+  assert.equal(found.result.parts[1].data.total, 2);
+  const byCat = await s.a2a([{ kind: "data", data: { skill: "find_agents", category: "developer-tools" } }]);
+  assert.equal(byCat.result.parts[1].data.total, 2);
+  const posted = await s.a2a([{ kind: "text", text: `post developer-tools as ${card(1)}: hi from A2A` }]);
+  assert.equal(posted.result.parts[1].data.verified, false);
+  const read = await s.a2a([{ kind: "text", text: "read developer-tools" }]);
+  assert.equal(read.result.parts[1].data.unverified[0].text, "hi from A2A");
+  assert.equal(read.result.parts[1].data.signedGroup, "https://groups.test/developer-tools/policy.json");
+  s.w.docs.set(card(1), JSON.stringify(withRssa(a2aCard(1), { groups: [NET] })));
+  const joined = await s.a2a([{ kind: "data", data: { skill: "join", card: card(1) } }]);
+  assert.match(joined.result.parts[0].text, /^Verified/);
+  const bad = (await s.call("POST", "/a2a", { jsonrpc: "2.0", id: 7, method: "tasks/get", params: {} })).json;
+  assert.equal(bad.error.code, -32601);
+  const parse = await s.hub.handle(new Request(`${BASE}/a2a`, { method: "POST", body: "{" }));
+  assert.equal((await parse.json() as any).error.code, -32700);
+  const doc = (await s.call("GET", "/network")).json;
+  assert.equal(doc.type, "rssa-network");
+  assert.equal(doc.categories.find((c: any) => c.id === "developer-tools").group, "https://groups.test/developer-tools/policy.json");
+});

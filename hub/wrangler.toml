@@ -22,6 +22,15 @@ class_name = "GroupDO"
 tag = "v1"
 new_sqlite_classes = ["GroupDO"]
 
+# The agent network (spec/network.md): one SQLite-backed object for the whole hub.
+[[durable_objects.bindings]]
+name = "NETWORK"
+class_name = "NetworkDO"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["NetworkDO"]
+
 # WebSub delivery: one message per refresh that accepted something; a stateless consumer POSTs to subscribers.
 [[queues.producers]]
 binding = "DELIVERY"

@@ -8,6 +8,7 @@
 import { handleMcpHttp, validate } from "../../packages/sdk-js/src/index.ts";
 import { Group, deliver, type DeliveryMessage, type LegacyGroup, type CardState, type Subscription } from "./group.ts";
 import { Directory, storeGroupStore, type Store } from "./store.ts";
+import { Network, type NetworkConfig } from "./network.ts";
 
 export type { Store } from "./store.ts";
 export { memoryStore } from "./store.ts";
@@ -40,6 +41,10 @@ export interface HubConfig {
   legacy?: Store;
   /** Caches the group list between requests (Workers: module scope), so reads don't each cost a KV read. */
   idCache?: { ids?: string[]; at?: number };
+  /** The agent network (spec/network.md). Default: in-process over `store`. worker.ts supplies a Durable Object. */
+  network?: (req: Request, admin: boolean) => Promise<Response>;
+  /** In-process network options (Node): signing key, category groups, unsigned-post switch. */
+  networkOptions?: Pick<NetworkConfig, "key" | "groups" | "posts">;
 }
 
 const j = (v: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -57,6 +62,7 @@ export class Hub {
   base: string;
   readonly dir: Directory;
   private local = new Map<string, Group>();
+  private net?: Network;
 
   constructor(cfg: HubConfig) {
     this.c = { now: () => Date.now(), cardTtlMs: 15 * 60_000, maxEntries: 500, ...cfg };
@@ -77,6 +83,11 @@ export class Hub {
       this.local.set(id, g);
     }
     return g;
+  }
+
+  /** The in-process Network (Node). */
+  localNetwork(): Network {
+    return (this.net ??= new Network({ rows: storeGroupStore(this.c.store, "network"), fetch: this.c.fetch, now: this.c.now, base: () => this.base, ...this.c.networkOptions }));
   }
 
   group(id: string): GroupHandle {
@@ -182,7 +193,11 @@ export class Hub {
         return this.websub(new URLSearchParams(await req.text()));
       }
       if (req.method === "GET" && path === "/") {
-        return j({ name: "RSSA reference hub", version: "0.2.0", spec: "https://github.com/getvda-ai/rssa", groups: (await this.groupIds()).map((id) => `${url.origin}/g/${id}/`), websub: `${url.origin}/`, validate: `${url.origin}/validate?url=`, mcp: `${url.origin}/mcp` });
+        return j({ name: "RSSA reference hub", version: "0.4.0", spec: "https://github.com/getvda-ai/rssa", groups: (await this.groupIds()).map((id) => `${url.origin}/g/${id}/`), websub: `${url.origin}/`, validate: `${url.origin}/validate?url=`, mcp: `${url.origin}/mcp`, network: `${url.origin}/network`, a2a: `${url.origin}/a2a`, card: `${url.origin}/.well-known/agent-card.json` });
+      }
+      if (path === "/.well-known/agent-card.json" || path === "/a2a" || path === "/network" || path.startsWith("/network/")) {
+        const admin = this.authorised(req);
+        return this.c.network ? this.c.network(req, admin) : this.localNetwork().fetch(req, admin);
       }
       if (path === "/mcp") {
         // MCP endpoint (a reference-hub extra, not part of the protocol): read, verify and validate
