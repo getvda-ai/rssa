@@ -281,6 +281,21 @@ export class Network {
     });
   }
 
+  /** Signs directory events written before the hub had a key (they are otherwise signed once, when they happen). */
+  resign(): Promise<number> {
+    return this.serial(async () => {
+      if (!this.c.key) return 0;
+      const puts: Array<[string, string, string]> = [];
+      for (const [k, v] of await this.c.rows.list("event")) {
+        const e = JSON.parse(v) as RssaEntry;
+        if (e.sig) continue;
+        puts.push(["event", k, JSON.stringify(await signEntry(e, this.feedUrl(), this.c.key))]);
+      }
+      if (puts.length) await this.c.rows.write(puts, []);
+      return puts.length;
+    });
+  }
+
   /** Re-checks the members whose card was checked longest ago. Membership only: no uptime probing. */
   recheck(limit = 20): Promise<number> {
     return this.serial(async () => {
@@ -525,6 +540,7 @@ export class Network {
         if (path === "/network/admin/list") return j(await this.list(Array.isArray(b.agents) ? b.agents : []));
         if (path === "/network/admin/restore") return j({ restored: await this.restore(b.card) });
         if (path === "/network/admin/recheck") return j({ checked: await this.recheck(Number(b.limit) || 20) });
+        if (path === "/network/admin/resign") return j({ signed: await this.resign() });
       }
       return j({ error: "not found" }, 404);
     } catch (e) {

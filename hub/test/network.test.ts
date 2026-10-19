@@ -204,3 +204,18 @@ test("A2A: signed hub card; message/send with text and data parts; errors are JS
   assert.equal(doc.type, "rssa-network");
   assert.equal(doc.categories.find((c: any) => c.id === "developer-tools").group, "https://groups.test/developer-tools/policy.json");
 });
+
+test("resign: events written before the hub had a key are signed once a key is set", async () => {
+  const w = web();
+  const store = memoryStore();
+  const mk = (key?: Awaited<ReturnType<typeof keyFromSeed>>) => new Hub({ store, fetch: w.fetcher, adminToken: "x", baseUrl: BASE, networkOptions: { key } });
+  const before = mk();
+  await before.handle(new Request(`${NET}/admin/list`, { method: "POST", headers: { authorization: "Bearer x" }, body: JSON.stringify({ agents: [{ card: card(1), body: a2aCard(1) }] }) }));
+  assert.equal(parseFeed(await (await before.handle(new Request(`${NET}/feed.atom`))).text()).entries[0].sig, undefined);
+  const key = await keyFromSeed(seed(2));
+  const after = mk(key);
+  const r = await after.handle(new Request(`${NET}/admin/resign`, { method: "POST", headers: { authorization: "Bearer x" }, body: "{}" }));
+  assert.equal(((await r.json()) as any).signed, 1);
+  const e = parseFeed(await (await after.handle(new Request(`${NET}/feed.atom`))).text()).entries[0];
+  assert.ok((await verifyEntry(e, `${NET}/feed.atom`, [key.publicJwk])).ok);
+});
