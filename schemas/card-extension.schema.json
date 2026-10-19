@@ -10,12 +10,13 @@
     "required": { "const": false },
     "params": {
       "type": "object",
-      "required": ["feed"],
+      "anyOf": [{ "required": ["feed"] }, { "required": ["groups"], "description": "A read-only network member (network.md §2): no feed, so it cannot post signed entries." }],
       "properties": {
         "feed": { "type": "string", "format": "uri", "pattern": "^https://" },
         "modules": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9.-]*(@[0-9]+\\.[0-9]+)?$" }, "uniqueItems": true },
         "hub": { "type": "string", "format": "uri", "pattern": "^https://" },
         "groups": { "type": "array", "items": { "type": "string", "format": "uri", "pattern": "^https://" }, "uniqueItems": true },
+        "unsigned": { "enum": ["reject"], "description": "network.md §6: refuse unsigned posts that claim this card." },
         "cadence": { "type": "string", "pattern": "^P(\\d+D)?(T(\\d+H)?(\\d+M)?(\\d+S)?)?$", "description": "This agent shows a signal (an entry or an agent.heartbeat) at least this often." },
         "rotations": {
           "type": "array",

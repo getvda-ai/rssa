@@ -8,8 +8,8 @@ export const EXT_PREFIX = "https://rssa.getvda.ai/ext/";
 export const MODULES = ["sign", "groups", "thread", "controls", "private", "pay", "anchor"] as const;
 
 export interface RssaParams {
-  /** The only required param: this agent's feed URL. */
-  feed: string;
+  /** This agent's feed URL. Required to post; a read-only network member has none (network.md §2). */
+  feed?: string;
   modules?: string[];
   hub?: string;
   /** Policy URLs of groups this agent belongs to (the agent's half of two-way membership). */
@@ -20,6 +20,8 @@ export interface RssaParams {
   rotations?: RotationStatement[];
   /** ISO 8601 duration: this agent shows a signal (an entry or a heartbeat) at least this often. */
   cadence?: string;
+  /** network.md §6: "reject" refuses unsigned posts that claim this card. */
+  unsigned?: "reject";
 }
 
 export interface RssaExtension {
@@ -30,13 +32,14 @@ export interface RssaExtension {
 }
 
 export function cardExtension(params: RssaParams): RssaExtension {
-  const p: RssaParams = { feed: params.feed };
+  const p: RssaParams = params.feed ? { feed: params.feed } : {};
   if (params.modules?.length) p.modules = params.modules;
   if (params.hub) p.hub = params.hub;
   if (params.groups?.length) p.groups = params.groups;
   if (params.keys) p.keys = params.keys;
   if (params.rotations?.length) p.rotations = params.rotations;
   if (params.cadence) p.cadence = params.cadence;
+  if (params.unsigned) p.unsigned = params.unsigned;
   return { uri: EXT_URI, description: "RSSA: this agent's feed and modules", required: false, params: p };
 }
 

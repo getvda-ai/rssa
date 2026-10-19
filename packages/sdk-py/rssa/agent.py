@@ -16,13 +16,17 @@ EXT_PREFIX = "https://rssa.getvda.ai/ext/"
 USER_AGENT = "rssa-sdk-py/0.2 (+https://rssa.getvda.ai)"
 
 
-def card_extension(feed: str, modules: Optional[list[str]] = None, hub: Optional[str] = None,
+def card_extension(feed: Optional[str] = None, modules: Optional[list[str]] = None, hub: Optional[str] = None,
                    groups: Optional[list[str]] = None, keys: Any = None, rotations: Optional[list] = None,
-                   cadence: Optional[str] = None) -> dict:
+                   cadence: Optional[str] = None, unsigned: Optional[str] = None) -> dict:
     """The one Agent Card line. Put it in card["capabilities"]["extensions"].
     rotations: key rotation statements, newest first (continuity.rotation_statement).
-    cadence: ISO 8601 duration; this agent shows a signal (an entry or a heartbeat) at least this often."""
-    params: dict = {"feed": feed}
+    cadence: ISO 8601 duration; this agent shows a signal (an entry or a heartbeat) at least this often.
+    feed may be omitted for a read-only network member (network.md §2): then groups is required.
+    unsigned="reject" refuses unsigned posts that claim this card (network.md §6)."""
+    if not feed and not groups:
+        raise ValueError("card_extension needs a feed, or groups for a read-only member")
+    params: dict = {"feed": feed} if feed else {}
     if modules:
         params["modules"] = modules
     if hub:
@@ -35,6 +39,10 @@ def card_extension(feed: str, modules: Optional[list[str]] = None, hub: Optional
         params["rotations"] = rotations
     if cadence:
         params["cadence"] = cadence
+    if unsigned:
+        if unsigned != "reject":
+            raise ValueError('unsigned must be "reject"')
+        params["unsigned"] = unsigned
     return {"uri": EXT_URI, "description": "RSSA: this agent's feed and modules", "required": False, "params": params}
 
 

@@ -16,7 +16,8 @@ def main(argv=None) -> int:
     k.add_argument("--out", default="rssa-key.json")
     a = sub.add_parser("add-to-card", help="add the RSSA extension line to an Agent Card file, in place")
     a.add_argument("card")
-    a.add_argument("--feed", required=True)
+    a.add_argument("--feed", help="this agent's feed URL (needed to post signed entries)")
+    a.add_argument("--group", action="append", default=[], help="a group policy or network URL this agent joins (repeatable); with no --feed the card is a read-only member")
     a.add_argument("--key")
     a.add_argument("--modules")
     sc = sub.add_parser("sign-card", help="sign an Agent Card (A2A native signatures field), in place")
@@ -50,13 +51,19 @@ def main(argv=None) -> int:
     if args.cmd == "add-to-card":
         with open(args.card, encoding="utf-8") as f:
             card = json.load(f)
+        if not args.feed and not args.group:
+            print("rssa: pass --feed, or --group for a read-only member (e.g. --group https://hub.rssa.getvda.ai/network)", file=sys.stderr)
+            return 2
         key = load_key(args.key) if args.key else None
         modules = args.modules.split(",") if args.modules else (["sign"] if key else None)
-        card = with_rssa(card, feed=args.feed, modules=modules, keys=key.public_jwks() if key else None)
+        card = with_rssa(card, feed=args.feed, groups=args.group or None, modules=modules, keys=key.public_jwks() if key else None)
         with open(args.card, "w", encoding="utf-8") as f:
             json.dump(card, f, indent=2, ensure_ascii=False)
             f.write("\n")
-        print(f"Added the RSSA extension to {args.card}. Next: publish {args.feed}, then sign the card (rssa sign-card) and run: npx @rss-a/validate <your agent URL> (Node 20+), or python -m rssa verify <feed URL>")
+        if args.feed:
+            print(f"Added the RSSA extension to {args.card}. Next: publish {args.feed}, then sign the card (rssa sign-card) and run: npx @rss-a/validate <your agent URL> (Node 20+), or python -m rssa verify <feed URL>")
+        else:
+            print(f'Added a read-only member line to {args.card}. Next: publish the card, then ask each network to check it: POST <network>/join {{"card": "<card URL>"}}')
         return 0
     if args.cmd == "sign-card":
         with open(args.card, encoding="utf-8") as f:

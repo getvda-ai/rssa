@@ -55,8 +55,12 @@ export async function validateCard(card: any, cardUrl: string, o: ValidateOption
   else r.pass("card-extension", `RSSA extension present (${EXT_URI})`);
   if (ext.required !== false) r.warn("card-required", `set "required": false so agents that don't know RSSA still talk to you`);
   const p = ext.params ?? ({} as any);
-  if (!isHttpUrl(p.feed)) { r.fail("card-feed", `params.feed must be an absolute https URL, got ${JSON.stringify(p.feed)}`); return r.findings; }
-  r.pass("card-feed", `feed: ${p.feed}`);
+  // A read-only network member (network.md §2): groups, no feed. It can be found and read, not post signed.
+  const readOnly = p.feed === undefined && Array.isArray(p.groups) && p.groups.length > 0;
+  if (readOnly) r.pass("card-readonly", "read-only member card: no feed, so it can join networks but not post signed entries");
+  else if (!isHttpUrl(p.feed)) { r.fail("card-feed", `params.feed must be an absolute https URL, got ${JSON.stringify(p.feed)}`); return r.findings; }
+  else r.pass("card-feed", `feed: ${p.feed}`);
+  if (p.unsigned !== undefined && p.unsigned !== "reject") r.fail("card-unsigned-posts", `params.unsigned must be "reject", got ${JSON.stringify(p.unsigned)}`);
   const mods = cardModules(card);
   for (const m of mods) if (!(MODULES as readonly string[]).includes(m) && !REVERSE_DOMAIN.test(m)) r.warn("card-module", `unknown module "${m}" (core modules: ${MODULES.join(", ")}; custom modules use reverse-domain names)`);
   let keys: PublicJwk[] = [];
@@ -84,32 +88,51 @@ export async function validateCard(card: any, cardUrl: string, o: ValidateOption
   checkCadence(r, p.cadence);
   await checkRotations(r, p.rotations, cardUrl, keys);
   if (o.deep === false) return r.findings;
+  if (readOnly) {
+    const findings = [...r.findings];
+    for (const g of p.groups ?? []) findings.push(...(await checkGroupRef(g, cardUrl, undefined, mods, fetcher)));
+    return findings;
+  }
 
   // Feed, checked against what the card promises.
+  const feedUrl = p.feed as string; // checked above: not readOnly, so an https URL
   let feedText: string | undefined;
   try {
-    const res = await fetcher(p.feed, { headers: { "user-agent": USER_AGENT } });
+    const res = await fetcher(feedUrl, { headers: { "user-agent": USER_AGENT } });
     if (!res.ok) r.fail("feed-fetch", `GET ${p.feed} returned ${res.status}`);
     else feedText = await res.text();
   } catch (e) {
     r.fail("feed-fetch", `cannot fetch ${p.feed}: ${(e as Error).message}`);
   }
   const findings = [...r.findings];
-  if (feedText !== undefined) findings.push(...(await validateFeedText(feedText, p.feed, { card, cardUrl, keys, fetcher })));
-  for (const g of p.groups ?? []) {
-    const gr = new R(g);
-    try {
-      const policy = (await getJson(g, fetcher)) as GroupPolicy;
-      if (policy.members?.some((m) => m.feed === p.feed)) gr.pass("membership", `group lists this agent's feed (two-way membership holds)`);
-      else gr.warn("membership", `this card claims the group, but the group's policy does not list ${p.feed} — not a member until the owner adds it`);
-      const req = (policy.requiredModules ?? []).filter((m) => !mods.includes(m));
-      if (req.length) gr.fail("required-modules", `the group requires modules ${req.join(", ")} that this card does not declare — the hub will refuse your posts`);
-    } catch (e) {
-      gr.fail("group-fetch", `cannot fetch group policy: ${(e as Error).message}`);
-    }
-    findings.push(...gr.findings);
-  }
+  if (feedText !== undefined) findings.push(...(await validateFeedText(feedText, feedUrl, { card, cardUrl, keys, fetcher })));
+  for (const g of p.groups ?? []) findings.push(...(await checkGroupRef(g, cardUrl, p.feed, mods, fetcher)));
   return findings;
+}
+
+/** One entry of params.groups: a group policy (two-way membership by feed) or a network document (network.md). */
+async function checkGroupRef(g: string, cardUrl: string, feed: string | undefined, mods: string[], fetcher: Fetcher): Promise<Finding[]> {
+  const gr = new R(g);
+  try {
+    const doc = (await getJson(g, fetcher)) as any;
+    if (doc?.type === "rssa-network") {
+      if (!isHttpUrl(doc.agents)) { gr.warn("network", "network document has no agents URL; cannot check membership"); return gr.findings; }
+      const u = `${doc.agents}${doc.agents.includes("?") ? "&" : "?"}card=${encodeURIComponent(cardUrl)}`;
+      const a = (await getJson(u, fetcher)) as any;
+      if (a?.verified === true) gr.pass("membership", `network ${doc.name ?? g} lists this card as a verified member (two-way membership holds)`);
+      else gr.warn("membership", `this card names the network, but the network does not list it as verified yet — POST ${doc.join ?? "<hub>/network/join"} {"card": "${cardUrl}"}`);
+      return gr.findings;
+    }
+    const policy = doc as GroupPolicy;
+    if (feed === undefined) { gr.warn("membership", "a group policy lists members by feed: this read-only card cannot be a member of it (add params.feed to post)"); return gr.findings; }
+    if (policy.members?.some((m) => m.feed === feed)) gr.pass("membership", `group lists this agent's feed (two-way membership holds)`);
+    else gr.warn("membership", `this card claims the group, but the group's policy does not list ${feed} — not a member until the owner adds it`);
+    const req = (policy.requiredModules ?? []).filter((m) => !mods.includes(m));
+    if (req.length) gr.fail("required-modules", `the group requires modules ${req.join(", ")} that this card does not declare — the hub will refuse your posts`);
+  } catch (e) {
+    gr.fail("group-fetch", `cannot fetch group policy: ${(e as Error).message}`);
+  }
+  return gr.findings;
 }
 
 /** params.cadence: the agent's promise to show a signal (an entry or a heartbeat) at least this often. */
