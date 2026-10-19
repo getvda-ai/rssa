@@ -129,6 +129,8 @@ export function eventSummary(type: string, r: AgentRow): string {
   return `${head} ${d.length > room ? `${d.slice(0, room - 1)}…` : d}`;
 }
 
+const caller = (req: Request) => ({ ip: req.headers.get("cf-connecting-ip") ?? undefined, ua: req.headers.get("user-agent") ?? undefined });
+
 export class Network {
   private c: NetworkConfig;
   private agents?: Map<string, AgentRow>;
@@ -454,8 +456,43 @@ export class Network {
 
   // ---------------- A2A (JSON-RPC message/send) ----------------
 
+  // ---------------- usage counts (the phase-2 measure) ----------------
+
+  /**
+   * Counts one use of the network, by skill and by day. Callers are counted as distinct daily-salted hashes of
+   * (IP, user agent): the salt never leaves the hub and changes daily, so callers cannot be followed across days.
+   * Our own tools (user agent containing `gosce-rssa` or `rssa-network-seeder`) are counted as `self`, never as use.
+   */
+  async count(skill: string, caller?: { ip?: string; ua?: string }) {
+    const d = day(this.c.now());
+    const ua = caller?.ua ?? "";
+    const k = `stat ${d}`;
+    const cur = JSON.parse((await this.c.rows.get("count", k)) ?? "{}") as { calls?: Record<string, number>; callers?: string[]; self?: number };
+    if (/gosce-rssa|rssa-network-seeder/.test(ua)) cur.self = (cur.self ?? 0) + 1;
+    else {
+      cur.calls = cur.calls ?? {};
+      cur.calls[skill] = (cur.calls[skill] ?? 0) + 1;
+      let salt = await this.c.rows.get("count", `salt ${d}`);
+      const puts: Array<[string, string, string]> = [];
+      if (!salt) { salt = crypto.randomUUID(); puts.push(["count", `salt ${d}`, salt]); }
+      const h = await short(`${salt} ${caller?.ip ?? ""} ${ua}`);
+      cur.callers = cur.callers ?? [];
+      if (!cur.callers.includes(h) && cur.callers.length < 10_000) cur.callers.push(h);
+      if (puts.length) await this.c.rows.write(puts, []);
+    }
+    await this.c.rows.write([["count", k, JSON.stringify(cur)]], []);
+  }
+
+  async stats(days = 30) {
+    const rows = (await this.c.rows.list("count")).filter(([k]) => k.startsWith("stat ")).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, days);
+    return {
+      note: "Uses of the network by outside callers: calls per skill and distinct callers per day (daily-salted hashes, not people). Our own tools are 'self'.",
+      days: rows.map(([k, v]) => { const x = JSON.parse(v); return { day: k.slice(5), calls: x.calls ?? {}, callers: (x.callers ?? []).length, self: x.self ?? 0 }; }),
+    };
+  }
+
   /** One A2A message: picks a skill from a data part or from text, and answers with a message. */
-  async a2a(req: any): Promise<unknown> {
+  async a2a(req: any, caller?: { ip?: string; ua?: string }): Promise<unknown> {
     const id = req?.id ?? null;
     const err = (code: number, message: string) => ({ jsonrpc: "2.0", id, error: { code, message } });
     if (req?.jsonrpc !== "2.0" || typeof req?.method !== "string") return err(-32600, "invalid JSON-RPC request");
@@ -464,7 +501,8 @@ export class Network {
     const parts: any[] = Array.isArray(msg?.parts) ? msg.parts : [];
     const data = parts.find((p) => (p?.kind === "data" || p?.data !== undefined) && p.data && typeof p.data === "object")?.data ?? {};
     const text = parts.filter((p) => typeof p?.text === "string").map((p) => p.text).join("\n").trim();
-    const { reply, payload } = await this.skill(data, text);
+    const { reply, payload, skill } = await this.skill(data, text);
+    try { await this.count(`a2a:${skill}`, caller); } catch { /* counting never fails a call */ }
     return {
       jsonrpc: "2.0", id,
       result: {
@@ -474,7 +512,13 @@ export class Network {
     };
   }
 
-  private async skill(data: any, text: string): Promise<{ reply: string; payload: unknown }> {
+  private async skill(data: any, text: string): Promise<{ reply: string; payload: unknown; skill: string }> {
+    const name = String(data.skill ?? (text.split(/\s+/)[0] ?? "")).toLowerCase().replace(/^\//, "");
+    const canonical: Record<string, string> = { find: "find_agents", find_agents: "find_agents", read: "read_group", read_group: "read_group", join: "join", post: "post", optout: "optout" };
+    return { ...(await this.runSkill(data, text)), skill: canonical[name] ?? "help" };
+  }
+
+  private async runSkill(data: any, text: string): Promise<{ reply: string; payload: unknown }> {
     const [word, ...rest] = text.split(/\s+/);
     const name = String(data.skill ?? (word ?? "")).toLowerCase().replace(/^\//, "");
     const arg = rest.join(" ").trim();
@@ -535,8 +579,9 @@ export class Network {
         if (Number(req.headers.get("content-length") ?? 0) > 32_768) return j({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "request too large" } }, 413);
         let body: any;
         try { body = JSON.parse(await req.text()); } catch { return j({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }); }
-        return j(await this.a2a(body));
+        return j(await this.a2a(body, caller(req)));
       }
+      if (req.method === "GET" && path === "/network/stats.json") return j(await this.stats());
       if (req.method === "GET" && path === "/network") return j(this.networkDoc());
       if (req.method === "GET" && path === "/network/agents.json") {
         const s = url.searchParams;
@@ -556,6 +601,7 @@ export class Network {
         if (Number(req.headers.get("content-length") ?? 0) > 16_384) return j({ error: "too large" }, 413);
         const b = (await req.json().catch(() => ({}))) as any;
         const r = path.endsWith("join") ? await this.join(b.card) : path.endsWith("optout") ? await this.optout(b.card) : await this.post(b);
+        try { await this.count(`http:${path.slice("/network/".length)}`, caller(req)); } catch { /* counting never fails a call */ }
         return j(r.body, r.status);
       }
       if (req.method === "POST" && path.startsWith("/network/admin/")) {

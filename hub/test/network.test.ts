@@ -243,3 +243,20 @@ test("directory events are core types with summaries within 280 characters, so t
   const f = await validateCard(JSON.parse((await s.call("GET", "/.well-known/agent-card.json")).text), hubCard, { fetcher: fetcher as typeof fetch });
   assert.deepEqual(f.filter((x) => x.level !== "pass" && x.level !== "info").map((x) => `${x.level} ${x.code}`), []);
 });
+
+test("usage counts: per skill and day, distinct callers as hashes, our own tools as self, never raw IPs", async () => {
+  const s = await setup();
+  const call = (text: string, ip: string, ua: string) => s.hub.handle(new Request(`${BASE}/a2a`, { method: "POST", headers: { "cf-connecting-ip": ip, "user-agent": ua },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "message/send", params: { message: { role: "user", messageId: "m", parts: [{ kind: "text", text }] } } }) }));
+  await call("find docker", "1.1.1.1", "agent-a/1");
+  await call("find_agents", "1.1.1.1", "agent-a/1");
+  await call("hello", "2.2.2.2", "agent-b/1");
+  await call("find x", "3.3.3.3", "gosce-rssa-manual");
+  await s.hub.handle(new Request(`${NET}/join`, { method: "POST", headers: { "cf-connecting-ip": "4.4.4.4", "user-agent": "agent-c" }, body: JSON.stringify({ card: card(5) }) }));
+  const st = (await s.call("GET", "/network/stats.json")).json;
+  const d = st.days[0];
+  assert.deepEqual(d.calls, { "a2a:find_agents": 2, "a2a:help": 1, "http:join": 1 });
+  assert.equal(d.callers, 3, "agent-a counted once");
+  assert.equal(d.self, 1);
+  assert.ok(!JSON.stringify(st).includes("1.1.1.1"), "no raw IPs");
+});
