@@ -10,24 +10,28 @@ import {
 } from "../../packages/sdk-js/src/index.ts";
 import type { GroupStore } from "./store.ts";
 
+/** Categories, each with patterns matched at a word start (case-insensitive) in what the card says about itself. */
 export const CATEGORIES: Array<{ id: string; name: string; words: string[] }> = [
-  { id: "trust-safety", name: "Trust & safety", words: ["security", "vulnerab", "cve", "threat", "fraud", "audit", "trust", "safety", "scam", "malware", "verif", "attest", "auth", "jwt", "password", "bcrypt", "oauth"] },
-  { id: "data-analytics", name: "Data & analytics", words: ["data", "analytic", "dataset", "statistic", "indicator", "sql", "metric", "dashboard", "report", "csv"] },
-  { id: "developer-tools", name: "Developer tools", words: ["code", "developer", "github", "sdk", "docker", "compose", "deploy", "kubernetes", "devops", "debug", "lint", "stack", "redis", "postgres", "kafka", "fastapi", "mcp"] },
-  { id: "agent-orchestration", name: "Agent orchestration", words: ["orchestrat", "workflow", "planner", "router", "multi-agent", "coordinat", "delegat", "pipeline"] },
-  { id: "agent-directories", name: "Agent directories", words: ["directory", "registry", "discovery", "catalog", "index of agents"] },
-  { id: "agent-communities", name: "Agent communities", words: ["community", "social", "forum", "chat", "conversation"] },
-  { id: "commerce-marketing", name: "Commerce & marketing", words: ["commerce", "shop", "product", "marketing", "seo", "advert", "sales", "crm", "retail"] },
-  { id: "markets-trading", name: "Markets & trading", words: ["trading", "trader", "stock", "forex", "arbitrage", "portfolio", "market data", "exchange rate"] },
-  { id: "crypto-web3", name: "Crypto & web3", words: ["crypto", "blockchain", "web3", "wallet", "token", "defi", "solana", "ethereum", "nft", "onchain", "on-chain", "bitcoin"] },
-  { id: "payments", name: "Payments", words: ["payment", "x402", "invoice", "billing", "checkout", "stripe", "settle"] },
-  { id: "content-media", name: "Content & media", words: ["content", "media", "image", "video", "writing", "translat", "podcast", "news", "summar", "article"] },
-  { id: "legal-compliance", name: "Legal & compliance", words: ["legal", "law", "compliance", "regulat", "gdpr", "contract", "ai act", "policy"] },
-  { id: "professional-services", name: "Professional services", words: ["consult", "recruit", "hiring", "accounting", "tax", "hr ", "freelanc"] },
-  { id: "real-world-services", name: "Real-world services", words: ["travel", "hotel", "booking", "weather", "map", "food", "health", "medical", "real estate", "flight"] },
-  { id: "research-knowledge", name: "Research & knowledge", words: ["research", "paper", "academic", "science", "search", "knowledge", "wiki", "arxiv"] },
+  { id: "trust-safety", name: "Trust & safety", words: ["security", "vulnerab", "cve\\b", "threat", "fraud", "malware", "scam", "attest", "auth", "jwt", "oauth", "bcrypt", "password", "crypto\\b", "cryptograph", "encrypt", "identity", "safety"] },
+  { id: "data-analytics", name: "Data & analytics", words: ["data\\b", "analytic", "dataset", "statistic", "indicator", "sql\\b", "metric", "dashboard", "csv\\b", "warehouse"] },
+  { id: "developer-tools", name: "Developer tools", words: ["code\\b", "coding", "developer", "github", "sdk\\b", "docker", "compose", "deploy", "kubernetes", "devops", "debug", "lint", "redis", "postgres", "kafka", "minio", "fastapi", "mcp\\b", "observability", "opentelemetry", "stack\\b", "storage", "database"] },
+  { id: "agent-orchestration", name: "Agent orchestration", words: ["orchestrat", "workflow", "planner", "router\\b", "multi-agent", "coordinat", "delegat"] },
+  { id: "agent-directories", name: "Agent directories", words: ["directory", "registry", "registries", "discovery", "catalog"] },
+  { id: "agent-communities", name: "Agent communities", words: ["community", "social", "forum", "chat\\b"] },
+  { id: "commerce-marketing", name: "Commerce & marketing", words: ["commerce", "e-commerce", "shop", "marketing", "seo\\b", "advert", "sales\\b", "crm\\b", "retail"] },
+  { id: "markets-trading", name: "Markets & trading", words: ["trading", "trader", "stocks?\\b", "forex", "arbitrage", "portfolio", "market data", "exchange rate"] },
+  { id: "crypto-web3", name: "Crypto & web3", words: ["blockchain", "web3", "wallet", "defi\\b", "solana", "ethereum", "nft\\b", "on-?chain", "bitcoin", "cryptocurrenc", "stablecoin", "usdc\\b"] },
+  { id: "payments", name: "Payments", words: ["(?<!no )payments?\\b", "x402", "invoice", "billing", "checkout", "stripe", "settlement"] },
+  { id: "content-media", name: "Content & media", words: ["content\\b", "media\\b", "image", "video", "writing", "translat", "podcast", "news\\b", "summar", "article"] },
+  { id: "legal-compliance", name: "Legal & compliance", words: ["legal", "law\\b", "compliance", "regulat", "gdpr", "contract", "ai act"] },
+  { id: "professional-services", name: "Professional services", words: ["consult", "recruit", "hiring", "accounting", "tax\\b", "freelanc"] },
+  { id: "real-world-services", name: "Real-world services", words: ["travel", "hotel", "booking", "weather", "maps?\\b", "food", "health ?care", "medical", "real estate", "flight"] },
+  { id: "research-knowledge", name: "Research & knowledge", words: ["research", "paper", "academic", "science", "knowledge", "wiki", "arxiv"] },
   { id: "other", name: "Other", words: [] },
 ];
+const PATTERNS = CATEGORIES.filter((c) => c.words.length).map((c) => ({ id: c.id, re: new RegExp(`(?:^|[^a-z0-9])(?:${c.words.join("|")})`, "gi") }));
+/** Skills that say nothing about what an agent does (a fleet's shared self-test, health or verify skill). */
+const GENERIC_SKILL = /^(self-?test|health|healthcheck|ping|echo|verify|verification|status)$/i;
 const CATEGORY_IDS = new Set(CATEGORIES.map((c) => c.id));
 
 export const NET_LIMITS = {
@@ -91,13 +95,14 @@ async function short(s: string) { return hex(await sha256(new TextEncoder().enco
 
 /** Up to three categories from what the card says about itself. Deterministic. */
 export function categorise(card: any): string[] {
-  const text = [card?.name, card?.description, ...(card?.skills ?? []).flatMap((s: any) => [s?.name, s?.description, ...(s?.tags ?? [])])]
-    .filter((x) => typeof x === "string").join(" ").toLowerCase();
-  const scored = CATEGORIES.filter((c) => c.words.length)
-    .map((c) => ({ id: c.id, n: c.words.reduce((n, w) => n + (text.split(w).length - 1), 0) }))
-    .filter((c) => c.n > 0)
+  const skills = (Array.isArray(card?.skills) ? card.skills : []).filter((sk: any) => !GENERIC_SKILL.test(String(sk?.id ?? sk?.name ?? "")));
+  const text = [card?.name, card?.description, ...skills.flatMap((sk: any) => [sk?.id, sk?.name, sk?.description, ...(Array.isArray(sk?.tags) ? sk.tags : [])])]
+    .filter((x) => typeof x === "string").join(" | ").toLowerCase();
+  const scored = PATTERNS.map((p) => ({ id: p.id, n: (text.match(p.re) ?? []).length })).filter((c) => c.n > 0)
     .sort((a, b) => b.n - a.n || a.id.localeCompare(b.id));
-  return scored.length ? scored.slice(0, 3).map((c) => c.id) : ["other"];
+  if (!scored.length) return ["other"];
+  // Keep the strong signals only: a category needs at least a third of the top score.
+  return scored.filter((c) => c.n * 3 >= scored[0].n).slice(0, 3).map((c) => c.id);
 }
 
 /** The listing fields, taken only from the agent's own card. */

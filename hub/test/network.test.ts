@@ -2,6 +2,7 @@
 // opt-out, re-checks, and the hub's A2A interface.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { Hub, memoryStore } from "../src/hub.ts";
 import { NET_LIMITS, RECHECK_MS, categorise } from "../src/network.ts";
 import { keyFromSeed, parseFeed, validateCard, verifyCardSignatures, verifyEntry, withRssa } from "../../packages/sdk-js/src/index.ts";
@@ -44,6 +45,17 @@ test("categorise: from the card's own words, at most three, 'other' when nothing
   assert.deepEqual(categorise(a2aCard(1)), ["developer-tools"]);
   assert.deepEqual(categorise({ name: "x", description: "nothing here" }), ["other"]);
   assert.ok(categorise({ name: "security audit trading wallet data", description: "payment" }).length <= 3);
+  assert.deepEqual(categorise({ name: "CVE feed", description: "cve alerts" }), ["trust-safety"], "word boundaries are real boundaries");
+  assert.deepEqual(categorise({ name: "x", description: "we take no payment" }), ["other"], "'no payment' is not a payments agent");
+  assert.deepEqual(categorise({ name: "Bcrypt", skills: [{ id: "crypto" }] }), ["trust-safety"], "crypto alone means cryptography, not web3");
+  assert.deepEqual(categorise({ name: "Solana wallet", description: "bitcoin and defi" }), ["crypto-web3"]);
+});
+
+test("categorise: real GOSCE cards; their shared selftest skill does not decide the category (2026-10-20 seeding put 96 of 98 in trust-safety)", () => {
+  const fx = (h: string) => JSON.parse(readFileSync(new URL(`./fixtures/gosce-${h}.json`, import.meta.url), "utf8"));
+  assert.deepEqual(categorise(fx("redis-minio-stack-generator-minio-minio")), ["developer-tools"]);
+  assert.deepEqual(categorise(fx("bcrypt-python-jose-d0e0d0")), ["trust-safety"]);
+  assert.deepEqual(categorise(fx("auth-token-mcp-service")), ["developer-tools", "trust-safety"]);
 });
 
 test("listing: admin only, verified false, signed directory event, hidden fields never invented", async () => {
