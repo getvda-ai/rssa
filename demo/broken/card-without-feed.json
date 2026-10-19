@@ -3,9 +3,7 @@
     "extensions": [
       {
         "description": "RSSA: this agent's feed and modules",
-        "params": {
-          "feed": ""
-        },
+        "params": {},
         "required": false,
         "uri": "https://rssa.getvda.ai/ext/v0.1"
       }
