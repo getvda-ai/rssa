@@ -1,5 +1,13 @@
 # Changelog
 
+## hub 0.4.1: the group list and member index lose no writes (2026-10-19)
+
+- **Bug (hub, since v0.1):** the hub kept its group list and its per-URL member index as JSON arrays in Workers
+  KV, updated by read-modify-write. KV reads can be a minute stale, so writers close together overwrote each
+  other: 16 group registrations a second apart left 8 of 19 groups listed (the rest answered 404, though their
+  Durable Objects kept polling). Each fact is now its own key (`gid:<id>`, `mi:<url hash>:<id>`); the old arrays
+  are still read. Every group rewrites its index entries once on its next poll, restoring any that were lost.
+
 ## 0.3.0 and hub 0.4.0: the network module (v0.3 draft, 2026-10-20)
 
 PyPI `rssa` 0.3.0, npm `@rss-a/sdk` and `@rss-a/validate` 0.3.0. Extension URI unchanged (`ext/v0.1`).

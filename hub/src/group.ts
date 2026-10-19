@@ -116,6 +116,8 @@ interface Meta {
   xmlChunks?: number;
   /** URLs this group currently has in the hub's member index. */
   indexed: string[];
+  /** Set once the index is written as one key per URL (hub 0.4.1); before that, entries may have been lost. */
+  indexV2?: boolean;
 }
 
 /** Everything a refresh needs; loaded on first use. Each field is one table, keyed by id or feed. */
@@ -292,7 +294,7 @@ export class Group {
   init(policyUrl: string): Promise<void> {
     return this.serial(async () => {
       if (await this.loadMeta()) return;
-      this.meta = { id: this.c.id, policyUrl, joined: [], rejected: [], reactions: {}, indexed: [] };
+      this.meta = { id: this.c.id, policyUrl, joined: [], rejected: [], reactions: {}, indexed: [], indexV2: true };
       await this.loadFull();
       await this.commit();
     });
@@ -770,8 +772,10 @@ export class Group {
     // Member index: the policy, every member feed and every member card (#13).
     if (this.c.reindex) {
       const want = [...new Set([m.policyUrl, ...allFeeds, ...allFeeds.map((x) => f.cards[x]?.cardUrl).filter((x): x is string => !!x)])].sort();
-      if (want.join("\n") !== m.indexed.join("\n")) {
-        try { await this.c.reindex(this.c.id, m.indexed, want); m.indexed = want; } catch { /* retried on the next refresh */ }
+      // Hub 0.4.1: rewrite every entry once, as one key each (concurrent writers had lost some from the shared arrays).
+      const before = m.indexV2 ? m.indexed : [];
+      if (!m.indexV2 || want.join("\n") !== m.indexed.join("\n")) {
+        try { await this.c.reindex(this.c.id, before, want); m.indexed = want; m.indexV2 = true; } catch { /* retried on the next refresh */ }
       }
     }
 

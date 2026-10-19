@@ -60,7 +60,14 @@ export function memoryStore(): Store & { m: Map<string, string> } {
   };
 }
 
-/** Hub-wide directory: which groups exist, and which groups a feed, card or policy URL belongs to (#13). */
+/**
+ * Hub-wide directory: which groups exist, and which groups a feed, card or policy URL belongs to (#13).
+ *
+ * One key per fact (`gid:<id>`, `mi:<url hash>:<id>`), never a read-modify-write of a shared array: KV reads
+ * can be up to a minute stale, so concurrent writers to one array overwrite each other. That lost 11 of 16
+ * group registrations made a second apart on 2026-10-19. The arrays written before (`groups`,
+ * `member:<url>`) are still read, and an id is removed from them when its group drops the URL.
+ */
 export class Directory {
   private store: Store;
   constructor(store: Store) { this.store = store; }
@@ -68,24 +75,33 @@ export class Directory {
     const v = await this.store.get(key);
     return v ? (JSON.parse(v) as string[]) : [];
   }
-  groupIds() { return this.arr("groups"); }
-  async addGroup(id: string) {
-    const ids = await this.groupIds();
-    if (!ids.includes(id)) await this.store.put("groups", JSON.stringify([...ids, id]));
+  private async listed(prefix: string): Promise<string[]> {
+    if (!this.store.list) throw new Error("Directory needs a Store with list()");
+    return (await this.store.list(prefix)).map((k) => k.slice(prefix.length));
   }
-  /** One read per ping, whatever the number of groups on the hub. */
-  groupsFor(url: string) { return this.arr(`member:${url}`); }
+  private static async urlKey(url: string) {
+    const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(url)));
+    return `mi:${Array.from(h.slice(0, 16), (b) => b.toString(16).padStart(2, "0")).join("")}:`;
+  }
+  async groupIds(): Promise<string[]> {
+    const [legacy, ids] = await Promise.all([this.arr("groups"), this.listed("gid:")]);
+    return [...new Set([...legacy, ...ids])];
+  }
+  async addGroup(id: string) { await this.store.put(`gid:${id}`, "1"); }
+  /** One list per ping, whatever the number of groups on the hub. */
+  async groupsFor(url: string): Promise<string[]> {
+    const [legacy, ids] = await Promise.all([this.arr(`member:${url}`), this.listed(await Directory.urlKey(url))]);
+    return [...new Set([...legacy, ...ids])];
+  }
   /** Moves this group's index entries from `before` to `after` (only the URLs that changed are written). */
   async reindex(id: string, before: string[], after: string[]) {
-    const add = after.filter((u) => !before.includes(u));
-    const remove = before.filter((u) => !after.includes(u));
-    for (const u of add) {
-      const ids = await this.groupsFor(u);
-      if (!ids.includes(id)) await this.store.put(`member:${u}`, JSON.stringify([...ids, id]));
-    }
-    for (const u of remove) {
-      const ids = (await this.groupsFor(u)).filter((x) => x !== id);
-      if (ids.length) await this.store.put(`member:${u}`, JSON.stringify(ids));
+    for (const u of after.filter((x) => !before.includes(x))) await this.store.put(`${await Directory.urlKey(u)}${id}`, "1");
+    for (const u of before.filter((x) => !after.includes(x))) {
+      await this.store.delete(`${await Directory.urlKey(u)}${id}`);
+      const legacy = await this.arr(`member:${u}`);
+      if (!legacy.includes(id)) continue;
+      const rest = legacy.filter((x) => x !== id);
+      if (rest.length) await this.store.put(`member:${u}`, JSON.stringify(rest));
       else await this.store.delete(`member:${u}`);
     }
   }

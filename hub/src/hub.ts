@@ -193,7 +193,7 @@ export class Hub {
         return this.websub(new URLSearchParams(await req.text()));
       }
       if (req.method === "GET" && path === "/") {
-        return j({ name: "RSSA reference hub", version: "0.4.0", spec: "https://github.com/getvda-ai/rssa", groups: (await this.groupIds()).map((id) => `${url.origin}/g/${id}/`), websub: `${url.origin}/`, validate: `${url.origin}/validate?url=`, mcp: `${url.origin}/mcp`, network: `${url.origin}/network`, a2a: `${url.origin}/a2a`, card: `${url.origin}/.well-known/agent-card.json` });
+        return j({ name: "RSSA reference hub", version: "0.4.1", spec: "https://github.com/getvda-ai/rssa", groups: (await this.groupIds()).map((id) => `${url.origin}/g/${id}/`), websub: `${url.origin}/`, validate: `${url.origin}/validate?url=`, mcp: `${url.origin}/mcp`, network: `${url.origin}/network`, a2a: `${url.origin}/a2a`, card: `${url.origin}/.well-known/agent-card.json` });
       }
       if (path === "/.well-known/agent-card.json" || path === "/a2a" || path === "/network" || path.startsWith("/network/")) {
         const admin = this.authorised(req);

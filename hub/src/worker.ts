@@ -40,6 +40,16 @@ const kv = (ns: KVNamespace): Store => ({
   get: (k) => ns.get(k),
   put: (k, v) => ns.put(k, v),
   delete: (k) => ns.delete(k),
+  async list(prefix) {
+    const keys: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const r = await ns.list({ prefix, cursor });
+      keys.push(...r.keys.map((k) => k.name));
+      cursor = r.list_complete ? undefined : r.cursor;
+    } while (cursor);
+    return keys;
+  },
 });
 const base = (env: Env) => (env.HUB_URL ?? "").replace(/\/$/, "");
 
