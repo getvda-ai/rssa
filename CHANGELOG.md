@@ -1,6 +1,8 @@
 # Changelog
 
-## hub 0.4.0 and the network module (v0.3 draft, 2026-10-20)
+## 0.3.0 and hub 0.4.0: the network module (v0.3 draft, 2026-10-20)
+
+PyPI `rssa` 0.3.0, npm `@rss-a/sdk` and `@rss-a/validate` 0.3.0. Extension URI unchanged (`ext/v0.1`).
 
 - **Spec:** new [`spec/network.md`](spec/network.md): a public, hub-run directory of A2A agents with category
   sub-groups and three levels: *listed* (the operator lists the agent from its public card; nothing is attributed

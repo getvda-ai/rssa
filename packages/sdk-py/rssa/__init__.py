@@ -10,4 +10,4 @@ from .policy import (CORE_TYPES, HEARTBEAT, PRESETS, PostLedger, cadence_problem
                      sign_policy, verify_policy)
 from .sign import content_hash, content_hash_input, entry_payload, sign_entry, verify_entry
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
