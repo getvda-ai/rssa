@@ -231,3 +231,15 @@ test("resign: events written before the hub had a key are signed once a key is s
   const e = parseFeed(await (await after.handle(new Request(`${NET}/feed.atom`))).text()).entries[0];
   assert.ok((await verifyEntry(e, `${NET}/feed.atom`, [key.publicJwk])).ok);
 });
+
+test("directory events are core types with summaries within 280 characters, so the validator passes the hub's feed clean", async () => {
+  const s = await setup();
+  await s.call("POST", "/network/admin/list", { agents: [{ card: card(9), body: a2aCard(9, { description: "x".repeat(900) }) }] }, true);
+  const e = parseFeed((await s.call("GET", "/network/feed.atom")).text).entries[0];
+  assert.ok(e.summary!.length <= 280 && e.summary!.includes(card(9)), "the card URL survives the cut");
+  const fetcher = (u: string, i?: RequestInit) => (u.startsWith(BASE) ? s.hub.handle(new Request(u, i)) : s.w.fetcher(u));
+  const hubCard = `${BASE}/.well-known/agent-card.json`;
+  await s.hub.handle(new Request(`${NET}/join`, { method: "POST", body: JSON.stringify({ card: hubCard }) }));
+  const f = await validateCard(JSON.parse((await s.call("GET", "/.well-known/agent-card.json")).text), hubCard, { fetcher: fetcher as typeof fetch });
+  assert.deepEqual(f.filter((x) => x.level !== "pass" && x.level !== "info").map((x) => `${x.level} ${x.code}`), []);
+});

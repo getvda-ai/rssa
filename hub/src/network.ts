@@ -119,6 +119,16 @@ export function rowFromCard(cardUrl: string, card: any, now: number, source?: st
   };
 }
 
+/** A directory event's summary, within the 280 characters standard groups allow: the facts first, then as much
+ *  of the agent's own description as fits. */
+export function eventSummary(type: string, r: AgentRow): string {
+  const head = `Verified: ${r.level !== "listed" && type !== "agent.left"}. Categories: ${r.categories.join(", ")}. Card: ${r.card}`;
+  const room = 280 - head.length - 1;
+  const d = (r.description ?? "").trim();
+  if (!d || room < 20) return head.slice(0, 280);
+  return `${head} ${d.length > room ? `${d.slice(0, room - 1)}…` : d}`;
+}
+
 export class Network {
   private c: NetworkConfig;
   private agents?: Map<string, AgentRow>;
@@ -154,7 +164,7 @@ export class Network {
       id: `${this.url}/agents/${await short(r.card)}#${type}`,
       updated: iso(now), type, link: r.card,
       title: `${r.name} (${type === "agent.listed" ? "listed, unverified" : type === "agent.joined" ? "verified member" : "left"})`,
-      summary: [r.description ?? "", `Categories: ${r.categories.join(", ")}.`, `Verified: ${r.level !== "listed" && type !== "agent.left"}.`, `Card: ${r.card}`].filter(Boolean).join(" ").slice(0, 1800),
+      summary: eventSummary(type, r),
     };
     const signed = this.c.key ? await signEntry(e, this.feedUrl(), this.c.key) : e;
     return ["event", `${String(now).padStart(15, "0")} ${e.id}`, JSON.stringify(signed)];
@@ -208,7 +218,9 @@ export class Network {
   /** Fetches a card from its own URL and classifies it against this network. */
   private async check(cardUrl: string): Promise<{ body?: any; level?: Level; feed?: string; rejectUnsigned?: boolean; error?: string }> {
     let body: any;
-    try {
+    // The hub's own card is read in-process: a Worker cannot fetch its own hostname (Cloudflare answers 522).
+    if (cardUrl === this.cardUrl()) body = await this.agentCard();
+    else try {
       const r = await this.c.fetch(cardUrl, { headers: { "user-agent": USER_AGENT, accept: "application/json" } });
       if (!r.ok) return { error: `card GET returned ${r.status}` };
       const t = await r.text();
@@ -286,14 +298,21 @@ export class Network {
     });
   }
 
-  /** Signs directory events written before the hub had a key (they are otherwise signed once, when they happen). */
+  /** Signs directory events written before the hub had a key (they are otherwise signed once, when they happen),
+   *  and re-signs any whose summary is over 280 characters after shortening it. */
   resign(): Promise<number> {
     return this.serial(async () => {
       if (!this.c.key) return 0;
       const puts: Array<[string, string, string]> = [];
+      const agents = await this.load();
       for (const [k, v] of await this.c.rows.list("event")) {
-        const e = JSON.parse(v) as RssaEntry;
-        if (e.sig) continue;
+        const stored = JSON.parse(v) as RssaEntry;
+        // Events from hub 0.4.0's first hours had summaries over 280 characters: rebuilt from the agent's row.
+        const long = (stored.summary?.length ?? 0) > 280;
+        if (stored.sig && !long) continue;
+        const { sig: _s, payload: _p, ...e } = stored;
+        const r = stored.link ? agents.get(stored.link) : undefined;
+        if (long) e.summary = r ? eventSummary(e.type ?? "", r) : e.summary!.slice(0, 280);
         puts.push(["event", k, JSON.stringify(await signEntry(e, this.feedUrl(), this.c.key))]);
       }
       if (puts.length) await this.c.rows.write(puts, []);

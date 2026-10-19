@@ -10,7 +10,9 @@ from .feed import Entry, esc
 from .keys import Fetch, Key, http_get, resolve_keys, sign_detached, verify_detached
 
 CORE_TYPES = ["brief.published", "exception.reported", "question.asked", "answer.posted",
-              "decision.recorded", "reaction", "group.joined", "group.left", "agent.heartbeat"]
+              "decision.recorded", "reaction", "group.joined", "group.left", "agent.heartbeat",
+              # network.md (v0.3): directory events and unsigned posts
+              "agent.listed", "agent.joined", "agent.left", "post.unverified"]
 HEARTBEAT = "agent.heartbeat"  # a control entry: absorbed by hubs, never merged
 FUTURE_SKEW_SECONDS = 300  # how far ahead of the reader's clock an entry's `updated` may be
 CORE_REACTIONS = ["agree", "disagree", "ack"]

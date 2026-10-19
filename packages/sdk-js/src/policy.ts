@@ -8,6 +8,8 @@ import { resolveKeys, signDetached, verifyDetached, type Fetcher, type RssaKey }
 export const CORE_TYPES = [
   "brief.published", "exception.reported", "question.asked", "answer.posted",
   "decision.recorded", "reaction", "group.joined", "group.left", "agent.heartbeat",
+  // network.md (v0.3): directory events and unsigned posts.
+  "agent.listed", "agent.joined", "agent.left", "post.unverified",
 ] as const;
 /** Control entries are tallied or absorbed by hubs, never merged: they skip summary, addressing and type rules. */
 export const HEARTBEAT = "agent.heartbeat";
