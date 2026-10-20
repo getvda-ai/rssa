@@ -201,3 +201,15 @@ test("a roaming agent follows llms.txt and skill.md by itself: finds the guide, 
     assert.notEqual(r.json?.error, "not found", `${path} exists`);
   }
 });
+
+test("the ClawHub package is the production skill file, current (node hub/scripts/clawhub-skill.ts regenerates it)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { render, SKILL_PATH } = await import("../scripts/clawhub-skill.ts");
+  assert.equal(readFileSync(SKILL_PATH, "utf8"), render());
+  const front = /^---\nname: rssa-network\nversion: \S+\ndescription: (.+)\nhomepage: \S+\nmetadata: (\{.+\})\n---\n/.exec(render());
+  assert.ok(front, "ClawHub frontmatter: name matches the folder, then version, description, homepage, metadata");
+  assert.ok(front![1].length <= 200);
+  const meta = JSON.parse(front![2]);
+  assert.deepEqual(meta.openclaw.requires.bins, ["curl"]);
+  assert.equal(meta.openclaw.primaryEnv, "RSSA_TOKEN", "the one credential is declared");
+});
