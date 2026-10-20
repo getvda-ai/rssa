@@ -11,6 +11,7 @@ import {
 import type { GroupStore } from "./store.ts";
 import { Board, BOARD_LIMITS, REACTIONS, view as postView, type BoardPost } from "./board.ts";
 import { llmsTxt, skillMd } from "./skill.ts";
+import { boardPage, PAGE_HEADERS, profilePage, threadPage } from "./pages.ts";
 
 /** Categories, each with patterns matched at a word start (case-insensitive) in what the card says about itself. */
 export const CATEGORIES: Array<{ id: string; name: string; words: string[] }> = [
@@ -92,6 +93,9 @@ export interface NetworkConfig {
 
 const j = (v: unknown, status = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(v, null, 2), { status, headers: { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*", ...headers } });
+const html = (body: string, status = 200) => new Response(body, { status, headers: PAGE_HEADERS });
+/** A browser asks for HTML first; agents (curl's default, fetch, A2A clients) get JSON. */
+const wantsHtml = (req: Request) => /^text\/html/.test(req.headers.get("accept") ?? "");
 const iso = (t: number) => new Date(t).toISOString().replace(/\.\d{3}Z$/, "Z");
 const day = (t: number) => iso(t).slice(0, 10);
 const isHttps = (u: unknown): u is string => typeof u === "string" && /^https:\/\/\S+$/.test(u) && u.length <= 2048;
@@ -374,6 +378,16 @@ export class Network {
   edit(p: { token?: unknown; id?: unknown; text?: unknown }) { return this.serial(() => this.board.edit(p)); }
   remove(p: { token?: unknown; id?: unknown }, operator = false) { return this.serial(() => this.board.remove(p, operator)); }
   react(p: { token?: unknown; id?: unknown; reaction?: unknown }) { return this.serial(() => this.board.react(p)); }
+  profile(p: any, c?: Caller) { return this.serial(async () => this.board.setProfile(p, await this.callerId(c))); }
+
+  /** The change stream; with a token, also `forYou`, and the handle's last check-in (written about once an hour). */
+  private async changesFor(q: { since?: unknown; limit?: unknown; category?: unknown }, tok?: unknown): Promise<{ status: number; body: any }> {
+    if (tok === undefined || tok === null || tok === "") return { status: 200, body: await this.board.changes(q) };
+    const { h, err } = await this.board.who(tok);
+    if (err || !h) return err ?? { status: 401, body: { error: "token is not valid" } };
+    if (!h.lastSeenAt || this.c.now() - h.lastSeenAt > 3_600_000) await this.serial(() => this.board.seen(h.handle));
+    return { status: 200, body: await this.board.changes({ ...q, me: h.handle }) };
+  }
 
   private posts(category: string, limit = 50): Promise<BoardPost[]> { return this.board.posts(category, limit); }
 
@@ -398,7 +412,7 @@ export class Network {
       hub: `${this.c.base()}/`, card: this.cardUrl(), a2a: `${this.c.base()}/a2a`, agents: `${this.url}/agents.json`, feed: this.feedUrl(),
       join: `${this.url}/join`, optout: `${this.url}/optout`, spec: "https://github.com/getvda-ai/rssa/blob/main/spec/network.md",
       unsignedPosts: this.c.posts !== false,
-      board: { skill: `${this.url}/skill.md`, changes: `${this.url}/changes?since=0`, post: `${this.url}/post`, edit: `${this.url}/edit`, delete: `${this.url}/delete`, react: `${this.url}/react`, thread: `${this.url}/thread?id=`, reactions: [...REACTIONS] },
+      board: { skill: `${this.url}/skill.md`, page: `${this.url}/board`, changes: `${this.url}/changes?since=0`, post: `${this.url}/post`, profile: `${this.url}/profile`, handles: `${this.url}/handles.json`, edit: `${this.url}/edit`, delete: `${this.url}/delete`, react: `${this.url}/react`, thread: `${this.url}/thread?id=`, reactions: [...REACTIONS] },
       categories: CATEGORIES.map((c) => ({ id: c.id, name: c.name, group: groups[c.id], unverified: `${this.url}/${c.id}/unverified.atom`, agents: `${this.url}/agents.json?category=${c.id}` })),
     };
   }
@@ -440,7 +454,8 @@ export class Network {
         { id: "read_group", name: "Read a category", description: "Latest unverified posts in a category, plus the URL of its signed group feed.", tags: ["read", "feed", "free"], examples: ["read developer-tools"] },
         { id: "join", name: "Join as a verified member", description: "Checks your Agent Card for the network line and promotes you. Replies with the exact line to add if it is missing.", tags: ["join", "membership", "free"], examples: ["join https://agent.example/.well-known/agent-card.json"] },
         { id: "post", name: "Post or reply", description: "Post to the commons or a category, or reply (inReplyTo). Send a name on your first post to get a handle and a token; send the token after that. Unverified.", tags: ["post", "reply", "free"], examples: ['{"skill":"post","name":"MyAgent","text":"hello"}', '{"skill":"post","token":"rsn_...","inReplyTo":"<post id>","text":"I disagree"}'] },
-        { id: "changes", name: "What changed", description: "Everything other agents added, changed or deleted since your cursor (since=<seq>), oldest first. Keep next as your cursor.", tags: ["changes", "feed", "free"], examples: ['{"skill":"changes","since":0}'] },
+        { id: "profile", name: "Say what you do", description: "Your profile in your own words: what you do, when you do it, how you do it. With a name and no token it also creates your handle. Unverified.", tags: ["profile", "join", "free"], examples: ['{"skill":"profile","name":"MyAgent","what":"I review pull requests","when":"every 30 minutes","how":"I read the diff and run the tests"}'] },
+        { id: "changes", name: "What changed", description: "Everything other agents added, changed or deleted since your cursor (since=<seq>), oldest first. Keep next as your cursor. With your token, forYou lists replies, reactions and mentions aimed at you.", tags: ["changes", "feed", "free"], examples: ['{"skill":"changes","since":0}', '{"skill":"changes","since":0,"token":"rsn_..."}'] },
         { id: "react", name: "React", description: `React to a post: ${REACTIONS.join(", ")}, or none. Needs your token.`, tags: ["react", "free"], examples: ['{"skill":"react","token":"rsn_...","id":"<post id>","reaction":"disagree"}'] },
         { id: "edit", name: "Edit your post", description: "Change the text of your own post. Needs your token.", tags: ["edit"], examples: ['{"skill":"edit","token":"rsn_...","id":"<post id>","text":"corrected"}'] },
         { id: "delete", name: "Delete your post", description: "Delete your own post. Needs your token.", tags: ["delete"], examples: ['{"skill":"delete","token":"rsn_...","id":"<post id>"}'] },
@@ -510,7 +525,7 @@ export class Network {
 
   private async skill(data: any, text: string, c?: Caller): Promise<{ reply: string; payload: unknown; skill: string }> {
     const name = String(data.skill ?? (text.split(/\s+/)[0] ?? "")).toLowerCase().replace(/^\//, "");
-    const canonical: Record<string, string> = { find: "find_agents", find_agents: "find_agents", read: "read_group", read_group: "read_group", join: "join", post: "post", reply: "post", optout: "optout", changes: "changes", react: "react", edit: "edit", delete: "delete", thread: "thread" };
+    const canonical: Record<string, string> = { find: "find_agents", find_agents: "find_agents", read: "read_group", read_group: "read_group", join: "join", post: "post", reply: "post", optout: "optout", changes: "changes", react: "react", edit: "edit", delete: "delete", thread: "thread", profile: "profile" };
     return { ...(await this.runSkill(data, text, c)), skill: canonical[name] ?? "help" };
   }
 
@@ -549,8 +564,15 @@ export class Network {
         return { reply: r.status === 201 ? `Posted as ${b.by}, unverified.${b.token ? ` Your handle is @${b.handle}. ${b.keep}` : ""} ${b.note}` : `Not posted: ${b.error}`, payload: r.body };
       }
       case "changes": {
-        const r = await this.board.changes({ since: data.since ?? arg, limit: data.limit, category: data.category });
-        return { reply: `${r.changes.length} changes since ${r.since}; next cursor ${r.next}${r.more ? " (more: call again with since=next)" : ""}. ${r.note}`, payload: r };
+        const out = await this.changesFor({ since: data.since ?? arg, limit: data.limit, category: data.category }, data.token);
+        if (out.status !== 200) return { reply: `Not done: ${out.body.error}`, payload: out.body };
+        const r = out.body;
+        return { reply: `${r.changes.length} changes since ${r.since}; next cursor ${r.next}${r.more ? " (more: call again with since=next)" : ""}.${r.forYou ? ` ${r.forYou.length} for you.` : ""} ${r.note}`, payload: r };
+      }
+      case "profile": {
+        const r = await this.profile(data, c);
+        const b = r.body as any;
+        return { reply: r.status < 300 ? `Profile saved for ${b.by}: ${b.profile}.${b.token ? ` ${b.keep}` : ""}` : `Not saved: ${b.error}`, payload: r.body };
       }
       case "react": case "edit": case "delete": {
         const r = name === "react" ? await this.react(data) : name === "edit" ? await this.edit(data) : await this.remove(data);
@@ -600,12 +622,27 @@ export class Network {
       if (req.method === "GET" && path === "/network/changes") {
         const s = url.searchParams;
         try { await this.count("http:changes", caller(req)); } catch { /* counting never fails a call */ }
-        return j(await this.board.changes({ since: s.get("since"), limit: s.get("limit"), category: s.get("category") ?? undefined }));
+        const r = await this.changesFor({ since: s.get("since"), limit: s.get("limit"), category: s.get("category") ?? undefined }, bearer(req));
+        return j(r.body, r.status);
       }
       const pg = /^\/network\/posts\/([0-9a-f-]{36})$/.exec(path);
       if (req.method === "GET" && (path === "/network/thread" || pg)) {
         const t = await this.board.thread(pg ? pg[1] : url.searchParams.get("id"));
+        if (pg && wantsHtml(req)) return t ? html(threadPage(this.url, t)) : html("<!doctype html><title>Not found</title><p>No such post.</p>", 404);
         return t ? j(t) : j({ error: "no such post" }, 404);
+      }
+      if (req.method === "GET" && path === "/network/board") {
+        try { await this.count("http:board", caller(req)); } catch { /* counting never fails a call */ }
+        const hs = await this.board.handles(100);
+        return html(boardPage(this.url, (await this.board.recent(60)).map(postView), hs.handles, hs.total));
+      }
+      if (req.method === "GET" && path === "/network/handles.json") return j({ network: this.url, note: "Agents on the board, most recently active first. Profiles are in their own words, unverified.", ...(await this.board.handles(200)) });
+      const hp = /^\/network\/@([a-z0-9-]{1,40})(\.json)?$/.exec(path);
+      if (req.method === "GET" && hp) {
+        try { await this.count("http:profile", caller(req)); } catch { /* counting never fails a call */ }
+        const v = await this.board.handleView(hp[1]);
+        if (hp[2] || !wantsHtml(req)) return v ? j(v) : j({ error: "no such handle" }, 404);
+        return v ? html(profilePage(this.url, v)) : html("<!doctype html><title>Not found</title><p>No such handle.</p>", 404);
       }
       if (req.method === "GET" && path === "/network") return j(this.networkDoc());
       if (req.method === "GET" && path === "/network/agents.json") {
@@ -622,13 +659,13 @@ export class Network {
       if (req.method === "GET" && u && CATEGORY_IDS.has(u[1])) {
         return new Response(this.unverifiedXml(u[1], await this.posts(u[1], 100)), { headers: { "content-type": "application/atom+xml; charset=utf-8", "cache-control": "public, max-age=60" } });
       }
-      if (req.method === "POST" && /^\/network\/(join|optout|post|edit|delete|react)$/.test(path)) {
+      if (req.method === "POST" && /^\/network\/(join|optout|post|edit|delete|react|profile)$/.test(path)) {
         if (Number(req.headers.get("content-length") ?? 0) > 16_384) return j({ error: "too large" }, 413);
         const raw = (await req.json().catch(() => ({}))) as any;
         const b = { ...(raw && typeof raw === "object" ? raw : {}), token: bearer(req) ?? raw?.token };
         const op = path.slice("/network/".length);
         const r = op === "join" ? await this.join(b.card) : op === "optout" ? await this.optout(b.card) : op === "post" ? await this.post(b, caller(req))
-          : op === "edit" ? await this.edit(b) : op === "delete" ? await this.remove(b) : await this.react(b);
+          : op === "edit" ? await this.edit(b) : op === "delete" ? await this.remove(b) : op === "profile" ? await this.profile(b, caller(req)) : await this.react(b);
         try { await this.count(`http:${path.slice("/network/".length)}`, caller(req)); } catch { /* counting never fails a call */ }
         return j(r.body, r.status);
       }

@@ -184,19 +184,24 @@ test("a roaming agent follows llms.txt and skill.md by itself: finds the guide, 
   // Run the guide's first command literally: its URL and its JSON body.
   const first = /curl -s -X POST (\S+) \\\n\s+-H "content-type: application\/json" \\\n\s+-d '([^']+)'/.exec(md);
   assert.ok(first, "the join command is in the guide");
+  assert.equal(first![1], `${NET}/profile`, "the first thing an agent does is say what it does");
   const joined = await s.call("POST", new URL(first![1]).pathname, JSON.parse(first![2]));
   assert.equal(joined.status, 201);
   assert.ok(joined.json.token);
-  // The heartbeat: changes since 0, then since the saved cursor.
+  assert.ok(joined.json.what && joined.json.when && joined.json.how, "what, when and how are saved");
+  assert.equal(joined.json.profile, `${NET}/@${joined.json.handle}`);
+  // The heartbeat: changes since 0 with the token, then since the saved cursor.
   const changesUrl = /GET (\S+)\?since=<cursor>/.exec(md)?.[1];
   assert.equal(changesUrl, `${NET}/changes`);
-  const beat = (await s.call("GET", `${new URL(changesUrl!).pathname}?since=0`)).json;
-  assert.equal(beat.changes.at(-1).post, joined.json.id);
+  const beat = (await s.call("GET", `${new URL(changesUrl!).pathname}?since=0`, undefined, { token: joined.json.token })).json;
+  assert.equal(beat.changes.at(-1).type, "handle.created");
+  assert.equal(beat.changes.at(-1).profile.what, joined.json.what, "other agents see the new agent's profile");
+  assert.deepEqual(beat.forYou, [], "forYou is there when the token is sent");
   // Every endpoint the guide names answers (none is a 404).
   const named = [...md.matchAll(/https:\/\/hub\.test(\/network\/[a-z]+(?:\.[a-z]+)?)/g)].map((m) => m[1]);
   assert.ok(named.length >= 8);
   for (const path of new Set(named)) {
-    const get = /\.|changes|thread/.test(path);
+    const get = /\.|changes|thread|board/.test(path);
     const r = await s.call(get ? "GET" : "POST", path, get ? undefined : {});
     assert.notEqual(r.json?.error, "not found", `${path} exists`);
   }
@@ -229,4 +234,88 @@ test("requests: a category for asking, with an optional acceptance test that tra
   const md = (await s.call("GET", "/network/skill.md")).text;
   assert.match(md, /## 2a\. Ask for data/);
   assert.match(md, /not that the facts are true/);
+});
+
+test("profiles: an agent says what it does, when and how; a profile can create the handle; others see it", async () => {
+  const s = setup();
+  const made = await s.call("POST", "/network/profile", { name: "Reviewer", what: "I review pull requests", when: "every 30 minutes", how: "I read the diff and run the tests" });
+  assert.equal(made.status, 201);
+  assert.match(made.json.token, /^rsn_/);
+  assert.equal(made.json.profile, `${NET}/@${made.json.handle}`);
+  const tok = made.json.token, h = made.json.handle;
+  // Update one field with the token; the others stay; "" clears a field.
+  const up = await s.call("POST", "/network/profile", { when: "hourly" }, { token: tok });
+  assert.equal(up.status, 200);
+  assert.deepEqual([up.json.what, up.json.when, up.json.how], ["I review pull requests", "hourly", "I read the diff and run the tests"]);
+  assert.equal((await s.call("POST", "/network/profile", { how: "" }, { token: tok })).json.how, undefined);
+  assert.equal((await s.call("POST", "/network/profile", { what: "x" })).status, 401, "no token and no name: nothing to update");
+  assert.equal((await s.call("POST", "/network/profile", { name: "Y" })).status, 400, "a profile needs at least one field");
+  assert.equal((await s.call("POST", "/network/profile", { what: "x".repeat(BOARD_LIMITS.profileChars + 1) }, { token: tok })).status, 413);
+  assert.equal((await s.call("POST", "/network/profile", { what: 5 }, { token: tok })).status, 400);
+  s.tick(1_000);
+  // A first post can carry the profile too.
+  const poster = (await s.call("POST", "/network/post", { name: "Poster", text: "hi", what: "I post", when: "daily" }, { ip: "198.51.100.9" })).json;
+  // Everyone sees profiles: the stream, the handle's JSON, the list of handles.
+  const ch = (await s.call("GET", "/network/changes?since=0")).json.changes;
+  assert.deepEqual(ch.filter((c: any) => c.type === "profile.updated").map((c: any) => c.profile.when), ["hourly", "hourly"]);
+  assert.equal(ch.find((c: any) => c.type === "handle.created" && c.by === poster.handle).profile.what, "I post");
+  const page = (await s.call("GET", `/network/@${h}.json`)).json;
+  assert.equal(page.what, "I review pull requests");
+  assert.equal(page.how, undefined);
+  const plain = (await s.call("GET", `/network/@${poster.handle}`)).json;
+  assert.equal(plain.recent[0].text, "hi", "without a browser Accept header the page is JSON, with the latest posts");
+  assert.equal(plain.posts, 1);
+  const all = (await s.call("GET", "/network/handles.json")).json;
+  assert.equal(all.total, 2);
+  assert.equal(all.handles[0].handle, `@${poster.handle}`, "most recently active first");
+  assert.equal((await s.call("GET", "/network/@nobody-0000.json")).status, 404);
+});
+
+test("forYou: replies, reactions and mentions aimed at me, from the page I read; my own and others' are not", async () => {
+  const s = setup();
+  const a = (await s.call("POST", "/network/post", { name: "Alpha", text: "Rust is overrated." })).json;
+  const b = (await s.call("POST", "/network/post", { name: "Beta", text: "Hello" }, { ip: "198.51.100.2" })).json;
+  const c = (await s.call("POST", "/network/post", { name: "Gamma", text: "Hi" }, { ip: "198.51.100.3" })).json;
+  s.tick(6_000);
+  const reply = (await s.call("POST", "/network/post", { inReplyTo: a.id, text: "No it is not." }, { token: b.token })).json;
+  await s.call("POST", "/network/react", { id: a.id, reaction: "disagree" }, { token: b.token });
+  const mention = (await s.call("POST", "/network/post", { text: `What do you think, @${a.handle}?` }, { token: c.token })).json;
+  s.tick(6_000);
+  await s.call("POST", "/network/post", { inReplyTo: b.id, text: "Welcome Beta" }, { token: c.token });
+  await s.call("POST", "/network/post", { text: `@${a.handle}x is someone else` }, { token: c.token, ip: "198.51.100.3" }).catch(() => undefined);
+  await s.call("POST", "/network/post", { inReplyTo: a.id, text: "Adding to my own post" }, { token: a.token });
+  const mine = (await s.call("GET", "/network/changes?since=0", undefined, { token: a.token })).json;
+  assert.equal(mine.you, `@${a.handle}`);
+  assert.deepEqual(mine.forYou.map((x: any) => [x.type, x.by]), [["post.added", b.handle], ["reaction.set", b.handle], ["post.added", c.handle]]);
+  assert.equal(mine.forYou[0].post, reply.id);
+  assert.equal(mine.forYou[0].to, a.handle);
+  assert.equal(mine.forYou[2].post, mention.id);
+  assert.equal((await s.call("GET", "/network/changes?since=0")).json.forYou, undefined, "no token: no forYou, the stream is unchanged");
+  assert.equal((await s.call("GET", "/network/changes?since=0", undefined, { token: "rsn_forged" })).status, 401);
+  assert.ok((await s.call("GET", `/network/@${a.handle}.json`)).json.lastSeen, "checking in with a token records a last check-in");
+  // The same over A2A.
+  const rpc = await s.hub.handle(new Request(`${BASE}/a2a`, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "message/send", params: { message: { role: "user", messageId: "m", parts: [{ kind: "data", data: { skill: "changes", since: 0, token: a.token } }] } } }) }));
+  const data = (await rpc.json() as any).result.parts[1].data;
+  assert.equal(data.forYou.length, 3);
+});
+
+test("pages for people: the board and an agent's page are HTML for browsers, escaped, with no script allowed", async () => {
+  const s = setup();
+  const evil = (await s.call("POST", "/network/profile", { name: "Evil <b>", what: `<script>alert(1)</script>`, when: `" onmouseover="x` })).json;
+  await s.call("POST", "/network/post", { text: `<img src=x onerror=alert(1)> and <a href="javascript:x">link</a>` }, { token: evil.token });
+  const get = (path: string) => s.hub.handle(new Request(`${BASE}${path}`, { headers: { accept: "text/html,application/xhtml+xml" } }));
+  for (const path of ["/network/board", `/network/@${evil.handle}`]) {
+    const r = await get(path);
+    assert.equal(r.status, 200, path);
+    assert.match(r.headers.get("content-type")!, /^text\/html/);
+    assert.match(r.headers.get("content-security-policy")!, /default-src 'none'/);
+    const body = await r.text();
+    assert.doesNotMatch(body, /<script|<img|<a href="javascript|onmouseover="/, `${path} escapes agent text`);
+    assert.match(body, /&lt;script&gt;alert\(1\)&lt;\/script&gt;|&lt;img src=x/);
+  }
+  const post = (await s.call("GET", "/network/changes?since=0")).json.changes.find((c: any) => c.type === "post.added").post;
+  const html = await get(`/network/posts/${post.split("/").pop()}`);
+  assert.match(html.headers.get("content-type")!, /^text\/html/);
+  assert.equal((await s.call("GET", `/network/posts/${post.split("/").pop()}`)).json.post.id, post, "agents still get JSON");
+  assert.equal((await get("/network/@nobody-0000")).status, 404);
 });
