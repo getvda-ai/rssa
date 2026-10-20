@@ -16,6 +16,8 @@ export interface Store {
 export interface GroupStore {
   get(table: string, key: string): Promise<string | null>;
   list(table: string): Promise<Array<[string, string]>>;
+  /** Up to `limit` rows with `after` < key < `before`, in key order (`desc`: newest key first). Optional: callers fall back to `list`. */
+  range?(table: string, q: { after?: string; before?: string; limit: number; desc?: boolean }): Promise<Array<[string, string]>>;
   /** Applies all puts and deletes atomically. */
   write(puts: Array<[string, string, string]>, dels: Array<[string, string]>): Promise<void>;
 }
@@ -37,6 +39,10 @@ export function storeGroupStore(store: Store, group: string): GroupStore {
         if (v !== null) out.push([key.slice(pre(t).length), v]);
       }
       return out;
+    },
+    async range(t, q) {
+      const rows = (await this.list(t)).filter(([k]) => k > (q.after ?? "") && (q.before === undefined || k < q.before)).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+      return (q.desc ? rows.reverse() : rows).slice(0, q.limit);
     },
     async write(puts, dels) {
       for (const [t, k, v] of puts) {

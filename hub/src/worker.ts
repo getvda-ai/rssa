@@ -64,6 +64,10 @@ function sqlRows(ctx: DurableObjectState): GroupStore {
     async list(t) {
       return sql.exec<{ k: string; v: string }>("SELECT k, v FROM r WHERE t = ?", t).toArray().map((r) => [r.k, r.v] as [string, string]);
     },
+    async range(t, q) {
+      return sql.exec<{ k: string; v: string }>(`SELECT k, v FROM r WHERE t = ? AND k > ? AND k < ? ORDER BY k ${q.desc ? "DESC" : "ASC"} LIMIT ?`, t, q.after ?? "", q.before ?? "\uffff", q.limit)
+        .toArray().map((r) => [r.k, r.v] as [string, string]);
+    },
     async write(puts, dels) {
       ctx.storage.transactionSync(() => {
         for (const [t, k, v] of puts) {

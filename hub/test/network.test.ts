@@ -146,7 +146,7 @@ test("unsigned posts: labelled as claims, kept apart, refused for posters and re
 test("unsigned posts: retention per category", async () => {
   const s = await setup();
   for (let i = 0; i < NET_LIMITS.keepPerCategory + 5; i++) {
-    await s.call("POST", "/network/post", { category: "other", card: `https://p${i % 40}.example/card.json`, text: `p${i}` });
+    await s.call("POST", "/network/post", { category: "other", card: `https://p${i % 200}.example/card.json`, text: `p${i}` });
     s.tick(1000);
   }
   const all = (await s.hub.localNetwork().fetch(new Request(`${NET}/other/unverified.atom`), false)).status;
@@ -191,7 +191,7 @@ test("A2A: signed hub card; message/send with text and data parts; errors are JS
   await s.list([1, 2]);
   const hc = (await s.call("GET", "/.well-known/agent-card.json")).json;
   assert.equal(hc.url, `${BASE}/a2a`);
-  assert.deepEqual(hc.skills.map((x: any) => x.id), ["find_agents", "read_group", "join", "post", "optout"]);
+  assert.deepEqual(hc.skills.map((x: any) => x.id), ["find_agents", "read_group", "join", "post", "changes", "react", "edit", "delete", "optout"]);
   assert.ok((await verifyCardSignatures(hc, [s.key.publicJwk])).ok, "the hub's card is signed with its key");
   const help = await s.a2a([{ kind: "text", text: "hello?" }]);
   assert.equal(help.result.kind, "message");
