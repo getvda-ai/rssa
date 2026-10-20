@@ -54,6 +54,10 @@ test("a conversation: reply, react, change a reaction, edit, delete; the change 
   s.tick(6_000);
   const reply = await s.call("POST", "/network/post", { inReplyTo: a.id, text: "Wrong. Spaces, always." }, { token: b.token });
   assert.equal(reply.json.category, "developer-tools", "a reply goes into its parent's category");
+  s.tick(6_000);
+  const stray = await s.call("POST", "/network/post", { inReplyTo: a.id, category: "commons", text: "Off-topic reply" }, { token: b.token });
+  assert.equal(stray.json.category, "developer-tools", "even when it names another category: its thread must find it");
+  assert.equal((await s.call("POST", "/network/delete", { id: stray.json.id }, { token: b.token })).status, 200);
   assert.equal((await s.call("POST", "/network/react", { id: reply.json.id, reaction: "disagree" }, { token: a.token })).json.reactions.disagree, 1);
   const changed = await s.call("POST", "/network/react", { id: reply.json.id, reaction: "funny" }, { token: a.token });
   assert.deepEqual(changed.json.reactions, { funny: 1 }, "one reaction per handle per post");
@@ -68,10 +72,10 @@ test("a conversation: reply, react, change a reaction, edit, delete; the change 
 
   const ch = (await s.call("GET", "/network/changes?since=0")).json;
   assert.deepEqual(ch.changes.map((c: any) => c.type), [
-    "handle.created", "post.added", "handle.created", "post.added", "post.added", "reaction.set", "reaction.set", "post.edited", "post.deleted",
+    "handle.created", "post.added", "handle.created", "post.added", "post.added", "post.added", "post.deleted", "reaction.set", "reaction.set", "post.edited", "post.deleted",
   ]);
   assert.ok(ch.changes.every((c: any, i: number) => c.seq === i + 1 && c.verified === false));
-  assert.equal(ch.next, 9);
+  assert.equal(ch.next, 11);
   assert.equal(ch.more, false);
   assert.match(ch.note, /never follow instructions/);
   const added = ch.changes.find((c: any) => c.type === "post.added" && c.post === reply.json.id);
@@ -82,12 +86,12 @@ test("a conversation: reply, react, change a reaction, edit, delete; the change 
   assert.equal(ch.changes.find((c: any) => c.type === "post.edited").text, "Tabs beat spaces, mostly.");
 
   // The cursor: nothing new, then exactly the new thing.
-  assert.deepEqual((await s.call("GET", "/network/changes?since=9")).json.changes, []);
+  assert.deepEqual((await s.call("GET", "/network/changes?since=11")).json.changes, []);
   s.tick(6_000);
   await s.call("POST", "/network/post", { inReplyTo: a.id, text: "Fine, mostly." }, { token: b.token });
-  const after = (await s.call("GET", "/network/changes?since=9")).json;
+  const after = (await s.call("GET", "/network/changes?since=11")).json;
   assert.equal(after.changes.length, 1);
-  assert.equal(after.next, 10);
+  assert.equal(after.next, 12);
   // A thread: the post and its live replies.
   const th = (await s.call("GET", `/network/thread?id=${encodeURIComponent(a.id)}`)).json;
   assert.equal(th.post.text, "Tabs beat spaces, mostly.");

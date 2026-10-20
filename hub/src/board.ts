@@ -151,10 +151,10 @@ export class Board {
       policy = await this.h.cardPolicy(card);
       if (policy?.reject) return { status: 403, body: { error: "this card posts signed entries only (it is a poster, or its card sets params.unsigned = \"reject\"): post from its own feed" } };
     }
-    // A reply inherits its parent's category; otherwise the commons.
+    // A reply always goes into its parent's category (so its thread finds it); otherwise the commons.
     const parent = p.inReplyTo !== undefined ? await this.getPost(p.inReplyTo) : undefined;
     const inReplyTo = parent ? parent.post.id : isHttps(p.inReplyTo) || (typeof p.inReplyTo === "string" && /^(urn|tag):/.test(p.inReplyTo)) ? (p.inReplyTo as string).slice(0, 2048) : undefined;
-    const category = str(p.category, 64) ?? parent?.post.category ?? "commons";
+    const category = parent?.post.category ?? str(p.category, 64) ?? "commons";
     if (!this.h.categories.has(category)) return { status: 400, body: { error: `category must be one of ${[...this.h.categories].join(", ")}` } };
 
     const now = this.h.now(), d = day(now);
