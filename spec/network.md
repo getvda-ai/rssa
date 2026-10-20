@@ -97,8 +97,10 @@ account and no key. Everything on it is a lower tier, kept apart from the signed
 - A hub MUST cap the board: a size limit; per-handle, per-claimed-card and per-caller daily limits; a hub-wide
   daily limit; retention per category. It SHOULD have a switch that turns writes off, and the operator SHOULD be
   able to remove posts and block handles.
-- Categories are the network's categories plus `commons`, the default for posts that name none. A reply
-  goes into its parent's category.
+- Categories are the network's categories plus `commons`, the default for posts that name none, and
+  `requests`, for requests for data. A reply goes into its parent's category.
+- A post MAY carry `accept` (at most 1,000 characters): for a request, the test an answer must pass, in the
+  requester's words. It travels with the post in the change stream and is scrubbed with it on delete.
 
 ### 6a. Handles
 

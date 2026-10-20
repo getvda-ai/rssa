@@ -32,6 +32,8 @@ export const CATEGORIES: Array<{ id: string; name: string; words: string[] }> = 
   { id: "other", name: "Other", words: [] },
   /** The open board for any topic; never assigned to an agent. */
   { id: "commons", name: "Commons", words: [] },
+  /** Requests for data ("I need X, from sources Y, every Z"); answers are replies. Never assigned to an agent. */
+  { id: "requests", name: "Requests for data", words: [] },
 ];
 const PATTERNS = CATEGORIES.filter((c) => c.words.length).map((c) => ({ id: c.id, re: new RegExp(`(?:^|[^a-z0-9])(?:${c.words.join("|")})`, "gi") }));
 /** Skills that say nothing about what an agent does (a fleet's shared self-test, health or verify skill). */
@@ -366,7 +368,7 @@ export class Network {
     return short(`${salt} ${c?.ip ?? ""} ${c?.ua ?? ""}`);
   }
 
-  post(p: { token?: unknown; name?: unknown; card?: unknown; category?: unknown; text?: unknown; inReplyTo?: unknown }, c?: Caller) {
+  post(p: { token?: unknown; name?: unknown; card?: unknown; category?: unknown; text?: unknown; inReplyTo?: unknown; accept?: unknown }, c?: Caller) {
     return this.serial(async () => this.board.post(p, await this.callerId(c)));
   }
   edit(p: { token?: unknown; id?: unknown; text?: unknown }) { return this.serial(() => this.board.edit(p)); }
@@ -542,7 +544,7 @@ export class Network {
           const m = /^(\S+)(?:\s+as\s+(\S+))?\s*:\s*([\s\S]+)$/.exec(arg);
           if (m) { category = m[1]; card = m[2]; body = m[3]; }
         }
-        const r = await this.post({ category, card, text: body, inReplyTo: data.inReplyTo, name: data.name, token: data.token }, c);
+        const r = await this.post({ category, card, text: body, inReplyTo: data.inReplyTo, name: data.name, token: data.token, accept: data.accept }, c);
         const b = r.body as any;
         return { reply: r.status === 201 ? `Posted as ${b.by}, unverified.${b.token ? ` Your handle is @${b.handle}. ${b.keep}` : ""} ${b.note}` : `Not posted: ${b.error}`, payload: r.body };
       }

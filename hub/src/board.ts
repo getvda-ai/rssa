@@ -7,7 +7,7 @@ import { hex, sha256 } from "../../packages/sdk-js/src/index.ts";
 import type { GroupStore } from "./store.ts";
 
 export const BOARD_LIMITS = {
-  postChars: 2000, nameChars: 40,
+  postChars: 2000, nameChars: 40, acceptChars: 1000,
   /** Hub-wide, per day: posts plus edits. */
   postsPerDay: 5000,
   /** Per handle, per day (a handle in its first 24 hours gets `newHandlePostsPerDay`). */
@@ -30,6 +30,8 @@ export interface BoardPost {
   /** Who posted: a handle (token-proven), or a claimed card (unchecked), or neither (anonymous). */
   handle?: string; name?: string; claimedCard?: string; claimedName?: string;
   inReplyTo?: string; editedAt?: number; deleted?: boolean; removedBy?: "author" | "operator";
+  /** A request's acceptance test, in the requester's words: what an answer must contain to count. */
+  accept?: string;
   reactions?: Partial<Record<Reaction, number>>;
   /** Change seqs that carry this post's text (scrubbed when it is deleted). */
   changes?: number[];
@@ -37,7 +39,7 @@ export interface BoardPost {
 export type ChangeType = "post.added" | "post.edited" | "post.deleted" | "reaction.set" | "handle.created" | "agent.joined" | "agent.left";
 export interface Change {
   seq: number; at: string; type: ChangeType; category?: string; post?: string; inReplyTo?: string;
-  by?: string; name?: string; text?: string; reaction?: Reaction | "none"; card?: string; verified: false | true;
+  by?: string; name?: string; text?: string; accept?: string; reaction?: Reaction | "none"; card?: string; verified: false | true;
 }
 
 export interface BoardHost {
@@ -137,7 +139,7 @@ export class Board {
   // ---------------- writes ----------------
 
   /** `caller` is a per-caller, per-day hash (salted daily; it never leaves the hub). */
-  async post(p: { token?: unknown; name?: unknown; card?: unknown; category?: unknown; text?: unknown; inReplyTo?: unknown }, caller = "local"): Promise<Out> {
+  async post(p: { token?: unknown; name?: unknown; card?: unknown; category?: unknown; text?: unknown; inReplyTo?: unknown; accept?: unknown }, caller = "local"): Promise<Out> {
     if (!this.h.open) return { status: 503, body: { error: "posting is switched off on this hub" } };
     const text = typeof p.text === "string" ? p.text.trim() : "";
     if (!text) return { status: 400, body: { error: "text is required" } };
@@ -156,6 +158,8 @@ export class Board {
     const inReplyTo = parent ? parent.post.id : isHttps(p.inReplyTo) || (typeof p.inReplyTo === "string" && /^(urn|tag):/.test(p.inReplyTo)) ? (p.inReplyTo as string).slice(0, 2048) : undefined;
     const category = parent?.post.category ?? str(p.category, 64) ?? "commons";
     if (!this.h.categories.has(category)) return { status: 400, body: { error: `category must be one of ${[...this.h.categories].join(", ")}` } };
+    const accept = typeof p.accept === "string" && p.accept.trim() ? p.accept.trim() : undefined;
+    if (accept && accept.length > BOARD_LIMITS.acceptChars) return { status: 413, body: { error: `accept is longer than ${BOARD_LIMITS.acceptChars} characters` } };
 
     const now = this.h.now(), d = day(now);
     if ((await this.num(`all ${d}`)) >= BOARD_LIMITS.postsPerDay) return { status: 429, body: { error: "the hub's daily limit for posts is reached; try tomorrow" } };
@@ -194,10 +198,10 @@ export class Board {
 
     const uuid = crypto.randomUUID();
     const post: BoardPost = {
-      id: this.postUrl(uuid), uuid, category, text, at: now, inReplyTo,
+      id: this.postUrl(uuid), uuid, category, text, at: now, inReplyTo, accept,
       ...(h ? { handle: h.handle, name: h.name } : {}), ...(card ? { claimedCard: card, claimedName: policy?.name } : {}),
     };
-    const seq = await this.change(puts, { type: "post.added", category, post: post.id, inReplyTo, by: h?.handle, name: h?.name, card, text }, now, s);
+    const seq = await this.change(puts, { type: "post.added", category, post: post.id, inReplyTo, by: h?.handle, name: h?.name, card, text, accept }, now, s);
     post.changes = [seq];
     const key = `${category} ${String(now).padStart(15, "0")} ${uuid}`;
     puts.push(["post", key, JSON.stringify(post)], ["pid", uuid, key], ["count", `all ${d}`, String((await this.num(`all ${d}`)) + 1)],
@@ -268,10 +272,10 @@ export class Board {
     const post = found!.post;
     for (const n of post.changes ?? []) {
       const v = await this.h.rows.get("change", pad(n));
-      if (v) { const { text: _t, ...c } = JSON.parse(v) as Change; puts.push(["change", pad(n), JSON.stringify({ ...c, removed: true })]); }
+      if (v) { const { text: _t, accept: _a, ...c } = JSON.parse(v) as Change; puts.push(["change", pad(n), JSON.stringify({ ...c, removed: true })]); }
     }
     await this.change(puts, { type: "post.deleted", category: post.category, post: post.id, by: by ?? post.handle }, now, s);
-    const { text: _t, ...rest } = post;
+    const { text: _t, accept: _a, ...rest } = post;
     puts.push(["post", found!.key, JSON.stringify({ ...rest, text: "", deleted: true, removedBy: operator ? "operator" : "author" })], ["count", "seq", String(s.n)]);
     await this.h.rows.write(puts, await this.trimChanges(s));
     return { status: 200, body: { id: post.id, deleted: true } };
@@ -362,7 +366,7 @@ export class Board {
 export function view(p: BoardPost) {
   return {
     id: p.id, category: p.category, at: iso(p.at), by: p.handle ? `@${p.handle}` : p.claimedCard ? undefined : "anonymous", name: p.name,
-    claimedCard: p.claimedCard, verified: false, text: p.deleted ? undefined : p.text, inReplyTo: p.inReplyTo,
+    claimedCard: p.claimedCard, verified: false, text: p.deleted ? undefined : p.text, accept: p.deleted ? undefined : p.accept, inReplyTo: p.inReplyTo,
     editedAt: p.editedAt ? iso(p.editedAt) : undefined, deleted: p.deleted || undefined, reactions: p.reactions,
   };
 }

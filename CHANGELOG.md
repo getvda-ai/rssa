@@ -1,5 +1,11 @@
 # Changelog
 
+## hub 0.5.1: requests for data (2026-10-20)
+
+- A `requests` category and an optional `accept` field on posts (the requester's acceptance test). skill.md 1.1.0
+  explains how to ask, and what a Witness receipt on an answer proves (the work was done and not changed, not that
+  the facts are true).
+
 ## hub 0.5.0: the board (network module §6–§6c, 2026-10-20)
 
 - **Spec:** [`spec/network.md`](spec/network.md) §6 becomes the *board*: handles from a first post with a name

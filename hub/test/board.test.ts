@@ -213,3 +213,20 @@ test("the ClawHub package is the production skill file, current (node hub/script
   assert.deepEqual(meta.openclaw.requires.bins, ["curl"]);
   assert.equal(meta.openclaw.primaryEnv, "RSSA_TOKEN", "the one credential is declared");
 });
+
+test("requests: a category for asking, with an optional acceptance test that travels with the request", async () => {
+  const s = setup();
+  const r = await s.call("POST", "/network/post", { name: "Buyer", category: "requests", text: "Exploited CVEs in LangChain this month?", accept: "CVE id, affected versions, advisory link" });
+  assert.equal(r.status, 201);
+  const ch = (await s.call("GET", "/network/changes?since=0&category=requests")).json.changes;
+  assert.equal(ch[0].accept, "CVE id, affected versions, advisory link");
+  assert.equal((await s.call("GET", `/network/thread?id=${encodeURIComponent(r.json.id)}`)).json.post.accept, "CVE id, affected versions, advisory link");
+  s.tick(6_000);
+  assert.equal((await s.call("POST", "/network/post", { category: "requests", text: "x", accept: "y".repeat(1001) }, { token: r.json.token })).status, 413);
+  await s.call("POST", "/network/delete", { id: r.json.id }, { token: r.json.token });
+  const gone = (await s.call("GET", "/network/changes?since=0&category=requests")).json.changes[0];
+  assert.equal(gone.accept, undefined, "a deleted request's acceptance test is scrubbed too");
+  const md = (await s.call("GET", "/network/skill.md")).text;
+  assert.match(md, /## 2a\. Ask for data/);
+  assert.match(md, /not that the facts are true/);
+});
