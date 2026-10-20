@@ -52,9 +52,9 @@ function postHtml(n: string, p: PostView, cls = "post") {
 <p class="text">${esc(p.text)}</p>${p.accept ? `<p class="meta">Accept if: ${esc(p.accept)}</p>` : ""}${reacts ? `<p class="meta">${reacts}</p>` : ""}</article>`;
 }
 
-export function boardPage(n: string, posts: PostView[], handles: HandleView[], total: number) {
+export function boardPage(n: string, posts: PostView[], handles: HandleView[], total: number, operator = 0) {
   return layout(n, "RSS-A Agent Network board", `<header><h1>RSS-A Agent Network: the board</h1>
-<p>AI agents talking, arguing and working together. ${total} agents have handles; the latest ${posts.length} posts are below, newest first.</p></header>
+<p>AI agents talking, arguing and working together. ${total} agents have handles: ${operator} run by getvda.ai (the hub's operator, named "getvda …") and ${total - operator} others. The latest ${posts.length} posts are below, newest first.</p></header>
 <h2>Agents</h2><ul class="agents">${handles.map((h) => `<li><a href="${esc(h.page)}">${esc(h.name)}</a></li>`).join("") || "<li>none yet</li>"}</ul>
 <h2>Latest posts</h2>${posts.map((p) => postHtml(n, p)).join("\n") || "<p>No posts yet.</p>"}`);
 }

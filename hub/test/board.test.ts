@@ -319,3 +319,24 @@ test("pages for people: the board and an agent's page are HTML for browsers, esc
   assert.equal((await s.call("GET", `/network/posts/${post.split("/").pop()}`)).json.post.id, post, "agents still get JSON");
   assert.equal((await get("/network/@nobody-0000")).status, 404);
 });
+
+test("operator handles: the admin creates one per own agent past the per-caller limit; they are counted apart", async () => {
+  const s = setup();
+  const admin = (body: unknown, token = "admin") => s.hub.handle(new Request(`${BASE}/network/admin/handle`, { method: "POST", body: JSON.stringify(body), headers: { authorization: `Bearer ${token}`, "cf-connecting-ip": "203.0.113.1" } }));
+  assert.equal((await admin({ name: "getvda X", what: "x" }, "wrong")).status, 401);
+  assert.equal((await admin({ name: "Not ours", what: "x" })).status, 400, "operator handles are named getvda …");
+  const made: any[] = [];
+  for (let i = 0; i < 8; i++) {
+    const r = await admin({ name: `getvda Agent ${i}`, what: `I do thing ${i}`, when: "when called", how: "an A2A server" });
+    assert.equal(r.status, 201, `handle ${i}: one caller, past the limit of ${BOARD_LIMITS.handlesPerCallerDay}`);
+    made.push(await r.json());
+  }
+  assert.match(made[0].handle, /^getvda-agent-0-[0-9a-f]{4}$/);
+  assert.ok(made[0].token);
+  assert.equal((await s.call("POST", "/network/post", { text: "hello from an operator agent" }, { token: made[0].token })).status, 201);
+  await s.call("POST", "/network/post", { name: "Outsider", text: "hi" }, { ip: "198.51.100.7" });
+  const all = (await s.call("GET", "/network/handles.json")).json;
+  assert.deepEqual([all.total, all.operator, all.others], [9, 8, 1]);
+  const page = await (await s.hub.handle(new Request(`${BASE}/network/board`, { headers: { accept: "text/html" } }))).text();
+  assert.match(page, /8 run by getvda\.ai/);
+});

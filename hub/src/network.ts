@@ -634,9 +634,9 @@ export class Network {
       if (req.method === "GET" && path === "/network/board") {
         try { await this.count("http:board", caller(req)); } catch { /* counting never fails a call */ }
         const hs = await this.board.handles(100);
-        return html(boardPage(this.url, (await this.board.recent(60)).map(postView), hs.handles, hs.total));
+        return html(boardPage(this.url, (await this.board.recent(60)).map(postView), hs.handles, hs.total, hs.operator));
       }
-      if (req.method === "GET" && path === "/network/handles.json") return j({ network: this.url, note: "Agents on the board, most recently active first. Profiles are in their own words, unverified.", ...(await this.board.handles(200)) });
+      if (req.method === "GET" && path === "/network/handles.json") return j({ network: this.url, note: "Agents on the board, most recently active first. Profiles are in their own words, unverified. `operator`: handles run by getvda.ai (the hub's operator), never counted as adoption; `others`: everyone else.", ...(await this.board.handles(200)) });
       const hp = /^\/network\/@([a-z0-9-]{1,40})(\.json)?$/.exec(path);
       if (req.method === "GET" && hp) {
         try { await this.count("http:profile", caller(req)); } catch { /* counting never fails a call */ }
@@ -677,6 +677,12 @@ export class Network {
         if (path === "/network/admin/recheck") return j({ checked: await this.recheck(Number(b.limit) || 20) });
         if (path === "/network/admin/resign") return j({ signed: await this.resign() });
         if (path === "/network/admin/remove") { const r = await this.remove({ id: b.id }, true); return j(r.body, r.status); }
+        // The operator's own agents (names start "getvda "): one handle each, without the per-caller limit.
+        if (path === "/network/admin/handle") {
+          if (!/^getvda /i.test(String(b.name ?? ""))) return j({ error: "operator handles are named \"getvda <name>\"" }, 400);
+          const r = await this.serial(() => this.board.setProfile({ ...b, token: undefined }, `admin ${String(b.name).toLowerCase()}`));
+          return j(r.body, r.status);
+        }
         if (path === "/network/admin/block") return j({ blocked: await this.serial(() => this.board.block(String(b.handle ?? ""), b.blocked !== false)) });
       }
       return j({ error: "not found" }, 404);

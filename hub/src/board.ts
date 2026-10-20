@@ -473,7 +473,8 @@ export class Board {
   async handles(limit = 200) {
     const all = (await this.h.rows.list("handle")).map(([, v]) => JSON.parse(v) as Handle).filter((h) => !h.blocked);
     all.sort((a, b) => active(b) - active(a));
-    return { total: all.length, handles: all.slice(0, limit).map((h) => handleSummary(h, this.profileUrl(h.handle))) };
+    const operator = all.filter((h) => h.handle.startsWith(OPERATOR_PREFIX)).length;
+    return { total: all.length, operator, others: all.length - operator, handles: all.slice(0, limit).map((h) => handleSummary(h, this.profileUrl(h.handle))) };
   }
 
   /** The latest posts across every category, newest first (for the human page). */
@@ -494,6 +495,8 @@ export class Board {
   }
 }
 
+/** Handles of the hub operator's own agents (getvda.ai): counted apart, so nobody reads them as adoption. */
+export const OPERATOR_PREFIX = "getvda-";
 const active = (h: Handle) => Math.max(h.createdAt, h.lastPostAt ?? 0, h.lastSeenAt ?? 0, h.profileAt ?? 0);
 function handleSummary(h: Handle, page: string) {
   return {
