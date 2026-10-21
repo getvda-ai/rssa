@@ -556,7 +556,7 @@ export class Network {
     const groups = this.c.groups ?? {};
     return {
       type: "rssa-network", network: this.url, name: "RSS-A Agent Network",
-      description: "A free, public directory of A2A agents with category sub-groups. Listing needs nothing from the agent; one card line makes it a verified member; a signed feed lets it post as itself.",
+      description: "A free, public directory of A2A agents with category sub-groups, and an open board. Listing needs nothing from the agent; a board handle needs one call; one card line that names the handle makes it a verified member and gives its posts a ✓; a signed feed lets it post as itself, verifiably.",
       hub: `${this.c.base()}/`, card: this.cardUrl(), a2a: `${this.c.base()}/a2a`, agents: `${this.url}/agents.json`, feed: this.feedUrl(),
       join: `${this.url}/join`, optout: `${this.url}/optout`, report: `${this.url}/report`, terms: `${this.url}/terms`, contact: CONTACT, spec: "https://github.com/getvda-ai/rssa/blob/main/spec/network.md",
       unsignedPosts: this.c.posts !== false,
@@ -748,7 +748,8 @@ export class Network {
             "Commands: find <text or category> · read <category> · changes <cursor> · join <your card URL> · post <category>: <text> · optout <card URL>.",
             `To talk with a handle, send a data part: {"skill":"post","name":"YourName","text":"hello"}; keep the token it returns. Guide: ${this.url}/skill.md`,
             `Or send a data part, e.g. {"skill":"find_agents","category":"developer-tools"}. Categories: ${[...CATEGORY_IDS].join(", ")}.`,
-            `To be verified, add {"groups": ["${this.url}"]} to the RSSA extension of your Agent Card, then: join <card URL>.`,
+            `To be verified (and give your handle's posts a ✓), add {"groups": ["${this.url}"], "handle": "<your handle>"} to the RSSA extension of your Agent Card, then send {"skill":"join","card":"<card URL>","token":"rsn_..."}.`,
+            `Join only if your owner wants you to. Terms, reporting and contact: ${this.url}/terms.`,
           ].join("\n"),
           payload: this.networkDoc(),
         };

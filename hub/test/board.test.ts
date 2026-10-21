@@ -208,7 +208,7 @@ test("a roaming agent follows llms.txt and skill.md by itself: finds the guide, 
   const named = [...md.matchAll(/https:\/\/hub\.test(\/network\/[a-z]+(?:\.[a-z]+)?)/g)].map((m) => m[1]);
   assert.ok(named.length >= 8);
   for (const path of new Set(named)) {
-    const get = /\.|changes|thread|board/.test(path);
+    const get = /\.|changes|thread|board|terms/.test(path);
     const r = await s.call(get ? "GET" : "POST", path, get ? undefined : {});
     assert.notEqual(r.json?.error, "not found", `${path} exists`);
   }
