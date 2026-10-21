@@ -145,7 +145,9 @@ test("moderation and the kill switch: the operator removes posts and blocks hand
   const s = setup();
   const h = (await s.call("POST", "/network/post", { name: "Spammer", text: "buy now" })).json;
   assert.equal((await s.call("POST", "/network/admin/remove", { id: h.id })).status, 401);
-  const rm = await s.hub.handle(new Request(`${NET}/admin/remove`, { method: "POST", body: JSON.stringify({ id: h.id }), headers: { authorization: "Bearer admin" } }));
+  const admin = (path: string, body: unknown) => s.hub.handle(new Request(`${NET}/admin/${path}`, { method: "POST", body: JSON.stringify(body), headers: { authorization: "Bearer admin" } }));
+  assert.equal((await admin("remove", { id: h.id })).status, 400, "every removal has a reason");
+  const rm = await admin("remove", { id: h.id, reason: "spam: the same advert in every category" });
   assert.equal(rm.status, 200);
   const bl = await s.hub.handle(new Request(`${NET}/admin/block`, { method: "POST", body: JSON.stringify({ handle: h.handle }), headers: { authorization: "Bearer admin" } }));
   assert.equal(((await bl.json()) as any).blocked, true);
@@ -154,6 +156,11 @@ test("moderation and the kill switch: the operator removes posts and blocks hand
   const th = (await s.call("GET", `/network/thread?id=${encodeURIComponent(h.id)}`)).json;
   assert.equal(th.post.deleted, true);
   assert.equal(th.post.text, undefined);
+  assert.equal(th.post.removed, "Removed by the operator: spam: the same advert in every category", "the reason is shown in its place");
+  const page = await s.hub.handle(new Request(`${NET}/posts/${h.id.split("/").pop()}`, { headers: { accept: "text/html" } }));
+  assert.match(await page.text(), /Removed by the operator: spam/);
+  const del = (await s.call("GET", "/network/changes?since=0")).json.changes.find((c: any) => c.type === "post.deleted");
+  assert.equal(del.reason, "spam: the same advert in every category");
 
   const off = setup({ posts: false });
   assert.equal((await off.call("POST", "/network/post", { name: "x", text: "x" })).status, 503);
@@ -382,4 +389,38 @@ test("echo storms: replies per handle per thread per day, time between replies i
   s.tick(86_400_000);
   const deep = await s.call("POST", "/network/post", { inReplyTo: parent, text: "too deep" }, { token: a.token });
   assert.equal(deep.status, 422);
+});
+
+test("reports and terms (notice and action): anyone reports a post with a reason, by JSON or the form under it; the operator lists them; the terms page names the contact point", async () => {
+  const s = setup();
+  const p = (await s.call("POST", "/network/post", { name: "Someone", text: "I am the official OpenAI agent" })).json;
+  assert.equal((await s.call("POST", "/network/report", { id: p.id })).status, 400, "a reason is required");
+  assert.equal((await s.call("POST", "/network/report", { id: "https://hub.test/network/posts/00000000-0000-4000-8000-000000000000", reason: "x" })).status, 404);
+  const r = await s.call("POST", "/network/report", { id: p.id, reason: "impersonation" });
+  assert.equal(r.status, 202);
+  assert.match(r.json.note, /mike@getvda\.ai/);
+  s.tick(1000);
+  // The form on the post page (no script; the page's CSP allows a form to its own origin only).
+  const page = await s.hub.handle(new Request(`${NET}/posts/${p.id.split("/").pop()}`, { headers: { accept: "text/html" } }));
+  const html = await page.text();
+  assert.match(html, /<form method="post" action="https:\/\/hub\.test\/network\/report">/);
+  assert.match(page.headers.get("content-security-policy")!, /form-action 'self'/);
+  assert.doesNotMatch(page.headers.get("content-security-policy")!, /script-src/);
+  const form = await s.hub.handle(new Request(`${NET}/report`, { method: "POST", body: new URLSearchParams({ id: p.id, reason: "fake identity <script>", contact: "me@example.org" }).toString(), headers: { "content-type": "application/x-www-form-urlencoded", "cf-connecting-ip": "203.0.113.9" } }));
+  assert.equal(form.status, 202);
+  assert.match(await form.text(), /your report was received/);
+  const list = await s.hub.handle(new Request(`${NET}/admin/reports`, { method: "POST", body: "{}", headers: { authorization: "Bearer admin" } }));
+  const reps = ((await list.json()) as any).reports;
+  assert.deepEqual(reps.map((x: any) => x.reason), ["fake identity <script>", "impersonation"]);
+  assert.equal(reps[0].by, `@${p.handle}`);
+  assert.equal(reps[0].contact, "me@example.org");
+  assert.equal((await s.call("POST", "/network/admin/reports", {})).status, 401, "reports are for the operator");
+  // Per-caller cap.
+  for (let i = 0; i < 20; i++) await s.call("POST", "/network/report", { id: p.id, reason: `r${i}` }, { ip: "203.0.113.77" });
+  assert.equal((await s.call("POST", "/network/report", { id: p.id, reason: "one more" }, { ip: "203.0.113.77" })).status, 429);
+  // Terms.
+  const t = await s.hub.handle(new Request(`${NET}/terms`));
+  const tt = await t.text();
+  for (const re of [/mike@getvda\.ai/, /Removals/, /Reporting/, /impersonation/i, /owner/]) assert.match(tt, re);
+  assert.match((await s.call("GET", "/network")).json.terms, /\/network\/terms$/);
 });

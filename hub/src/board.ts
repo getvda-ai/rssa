@@ -43,6 +43,8 @@ export interface BoardPost {
   /** A reply's thread (the uuid of the post it all started from) and its depth (1 = a reply to that post). */
   root?: string; depth?: number;
   editedAt?: number; deleted?: boolean; removedBy?: "author" | "operator";
+  /** Why the operator removed a post (shown in its place: every removal is explained). */
+  removedReason?: string;
   /** A request's acceptance test, in the requester's words: what an answer must contain to count. */
   accept?: string;
   reactions?: Partial<Record<Reaction, number>>;
@@ -53,6 +55,8 @@ export type ChangeType = "post.added" | "post.edited" | "post.deleted" | "reacti
 export interface Change {
   seq: number; at: string; type: ChangeType; category?: string; post?: string; inReplyTo?: string;
   by?: string; name?: string; text?: string; accept?: string; reaction?: Reaction | "none"; card?: string; verified: false | true;
+  /** On an operator's `post.deleted`: why. */
+  reason?: string;
   /** The handle a reply or a reaction is aimed at (the parent post's author): what `forYou` is built from. */
   to?: string;
   profile?: Profile;
@@ -364,7 +368,9 @@ export class Board {
   }
 
   /** Deletes a post: by its author (token), or by the operator. Its text is scrubbed from the change stream too. */
-  async remove(p: { token?: unknown; id?: unknown }, operator = false): Promise<Out> {
+  async remove(p: { token?: unknown; id?: unknown; reason?: unknown }, operator = false): Promise<Out> {
+    const reason = operator ? str(p.reason, 500)?.trim() : undefined;
+    if (operator && !reason) return { status: 400, body: { error: "the operator gives a reason for every removal (it is shown in the post's place)" } };
     let found: { key: string; post: BoardPost } | undefined, by: string | undefined;
     if (operator) {
       found = await this.getPost(p.id);
@@ -382,11 +388,11 @@ export class Board {
       const v = await this.h.rows.get("change", pad(n));
       if (v) { const { text: _t, accept: _a, ...c } = JSON.parse(v) as Change; puts.push(["change", pad(n), JSON.stringify({ ...c, removed: true })]); }
     }
-    await this.change(puts, { type: "post.deleted", category: post.category, post: post.id, by: by ?? post.handle }, now, s);
+    await this.change(puts, { type: "post.deleted", category: post.category, post: post.id, by: by ?? post.handle, ...(reason ? { reason } : {}) }, now, s);
     const { text: _t, accept: _a, ...rest } = post;
-    puts.push(["post", found!.key, JSON.stringify({ ...rest, text: "", deleted: true, removedBy: operator ? "operator" : "author" })], ["count", "seq", String(s.n)]);
+    puts.push(["post", found!.key, JSON.stringify({ ...rest, text: "", deleted: true, removedBy: operator ? "operator" : "author", ...(reason ? { removedReason: reason } : {}) })], ["count", "seq", String(s.n)]);
     await this.h.rows.write(puts, await this.trimChanges(s));
-    return { status: 200, body: { id: post.id, deleted: true } };
+    return { status: 200, body: { id: post.id, deleted: true, ...(reason ? { reason } : {}) } };
   }
 
   async react(p: { token?: unknown; id?: unknown; reaction?: unknown }): Promise<Out> {
@@ -518,5 +524,6 @@ export function view(p: BoardPost) {
     id: p.id, category: p.category, at: iso(p.at), by: p.handle ? `@${p.handle}` : "anonymous", name: p.name,
     verified: false, text: p.deleted ? undefined : p.text, accept: p.deleted ? undefined : p.accept, inReplyTo: p.inReplyTo,
     editedAt: p.editedAt ? iso(p.editedAt) : undefined, deleted: p.deleted || undefined, reactions: p.reactions,
+    removed: p.deleted ? (p.removedBy === "operator" ? `Removed by the operator: ${p.removedReason ?? "no reason recorded"}` : "Deleted by its author") : undefined,
   };
 }
