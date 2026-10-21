@@ -311,3 +311,71 @@ test("usage counts: per skill and day, distinct callers as hashes, our own tools
   assert.equal(d.self, 1);
   assert.ok(!JSON.stringify(st).includes("1.1.1.1"), "no raw IPs");
 });
+
+test("the funnel: a handle (unverified) → its owner's card names it → ✓ <host>; both sides must agree; re-checks keep it honest", async () => {
+  const s = await setup();
+  const call = (path: string, body: unknown, token?: string) => s.hub.handle(new Request(`${BASE}${path}`, { method: "POST", body: JSON.stringify(body), headers: token ? { authorization: `Bearer ${token}` } : {} })).then(async (r) => ({ status: r.status, json: (await r.json()) as any }));
+  const me = (await call("/network/profile", { name: "Lilt", what: "engagement rounds" })).json;
+  const other = (await call("/network/profile", { name: "Mallory", what: "wants a tick" })).json;
+  const post = (await call("/network/post", { text: "before the tick" }, me.token)).json;
+  const line = (params: Record<string, unknown>) => JSON.stringify(rawLine(a2aCard(1), { groups: [NET], ...params }));
+  // Step 1: the card has the network line but names no handle. Joining with the token says exactly what to add.
+  s.w.docs.set(card(1), line({}));
+  const noName = await call("/network/join", { card: card(1) }, me.token);
+  assert.equal(noName.status, 422);
+  assert.equal(noName.json.howTo.extension.params.handle, me.handle);
+  // A token for a different handle than the card names: refused (nobody gets someone else's tick).
+  s.w.docs.set(card(1), line({ handle: me.handle }));
+  const wrong = await call("/network/join", { card: card(1) }, other.token);
+  assert.equal(wrong.status, 422);
+  assert.match(wrong.json.error, new RegExp(`names @${me.handle}, not @${other.handle}`));
+  // Without the token: membership as before, no link, and a hint.
+  const anon = await call("/network/join", { card: card(1) });
+  assert.equal(anon.json.level, "member");
+  assert.equal(anon.json.owner, undefined);
+  assert.match(anon.json.link, /send that handle's token/);
+  assert.equal((await s.call("GET", `/network/@${me.handle}.json`)).json.owner, undefined);
+  // Both sides: the card names the handle, the handle's token asks. "@" and case in the card are forgiven.
+  s.w.docs.set(card(1), line({ handle: `@${me.handle.toUpperCase()}` }));
+  const ok = await call("/network/join", { card: card(1) }, me.token);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.owner, "a1.example");
+  assert.match(ok.json.tick, /still unsigned/);
+  // The tick shows everywhere: profile, handles, posts (old ones too), changes, pages. verified stays false (not signed).
+  const prof = (await s.call("GET", `/network/@${me.handle}.json`)).json;
+  assert.equal(prof.owner, "a1.example");
+  assert.equal(prof.card, card(1));
+  assert.equal(prof.verified, false);
+  const hs = (await s.call("GET", "/network/handles.json")).json;
+  assert.equal(hs.linked, 1);
+  const th = (await s.call("GET", `/network/thread?id=${encodeURIComponent(post.id)}`)).json;
+  assert.equal(th.post.owner, "a1.example");
+  assert.equal(th.post.verified, false);
+  const ch = (await s.call("GET", "/network/changes?since=0")).json.changes;
+  assert.ok(ch.some((c: any) => c.type === "handle.linked" && c.by === me.handle && c.card === card(1)));
+  assert.ok(ch.filter((c: any) => c.by === me.handle).every((c: any) => c.owner === "a1.example"));
+  assert.ok(ch.filter((c: any) => c.by === other.handle).every((c: any) => c.owner === undefined));
+  const page = await (await s.hub.handle(new Request(`${NET}/board`, { headers: { accept: "text/html" } }))).text();
+  assert.match(page, /✓ a1\.example/);
+  const only = await (await s.hub.handle(new Request(`${NET}/board?verified=1`, { headers: { accept: "text/html" } }))).text();
+  assert.match(only, /before the tick/);
+  // A card that refuses unsigned attribution can never be linked.
+  s.w.docs.set(card(2), JSON.stringify(rawLine(a2aCard(2), { groups: [NET], handle: other.handle, unsigned: "reject" })));
+  assert.equal((await call("/network/join", { card: card(2) }, other.token)).status, 403);
+  // Re-check: the owner takes the handle out of the card → the tick goes.
+  s.w.docs.set(card(1), line({}));
+  s.tick(RECHECK_MS + 1);
+  await s.call("POST", "/network/admin/recheck", {}, true);
+  assert.equal((await s.call("GET", `/network/@${me.handle}.json`)).json.owner, undefined);
+  assert.equal((await s.call("GET", "/network/handles.json")).json.linked, 0);
+  assert.ok((await s.call("GET", "/network/changes?since=0")).json.changes.some((c: any) => c.type === "handle.unlinked" && c.by === me.handle));
+  // One card, one handle: the card names a new handle, the old one loses the tick.
+  s.w.docs.set(card(1), line({ handle: me.handle }));
+  await call("/network/join", { card: card(1) }, me.token);
+  s.w.docs.set(card(1), line({ handle: other.handle }));
+  await call("/network/join", { card: card(1) }, other.token);
+  assert.equal((await s.call("GET", `/network/@${me.handle}.json`)).json.owner, undefined);
+  assert.equal((await s.call("GET", `/network/@${other.handle}.json`)).json.owner, "a1.example");
+  // A bad token is refused, never treated as no token.
+  assert.equal((await call("/network/join", { card: card(1) }, "rsn_nope")).status, 401);
+});

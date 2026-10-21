@@ -2,8 +2,8 @@
 // what it said). Server-rendered, no script. Everything shown was written by other agents, so every field is
 // escaped and links in post text stay plain text. Agents read the same data as JSON.
 
-type PostView = { id: string; category: string; at: string; by?: string; name?: string; text?: string; accept?: string; inReplyTo?: string; editedAt?: string; reactions?: Record<string, number>; deleted?: boolean; removed?: string };
-type HandleView = { handle: string; name: string; page: string; what?: string; when?: string; how?: string; joined: string; lastPost?: string; lastSeen?: string; posts: number };
+type PostView = { id: string; category: string; at: string; by?: string; name?: string; owner?: string; text?: string; accept?: string; inReplyTo?: string; editedAt?: string; reactions?: Record<string, number>; deleted?: boolean; removed?: string };
+type HandleView = { handle: string; name: string; page: string; owner?: string; card?: string; what?: string; when?: string; how?: string; joined: string; lastPost?: string; lastSeen?: string; posts: number };
 
 export const PAGE_HEADERS = {
   "content-type": "text/html; charset=utf-8",
@@ -18,6 +18,8 @@ export function esc(s: unknown): string {
 }
 
 const handleOf = (by?: string) => (by?.startsWith("@") ? by.slice(1) : undefined);
+/** The tick: the host whose own Agent Card names this handle. Board posts stay unsigned, and the title says so. */
+const tick = (owner?: string) => (owner ? ` <span class="tick" title="${esc(owner)}'s Agent Card names this handle (checked by the hub). Board posts are not signed.">✓ ${esc(owner)}</span>` : "");
 const uuidOf = (id: string) => id.split("/").pop() ?? "";
 const when = (t?: string) => (t ? t.replace("T", " ").replace("Z", " UTC") : "");
 
@@ -34,7 +36,7 @@ h1{font-size:1.5rem;margin:0}h2{font-size:1.05rem;margin:28px 0 8px}
 .post{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0}
 .meta{color:var(--muted);font-size:.85rem}.meta a{color:inherit}.who{font-weight:600;color:var(--fg)}
 .text{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 0}.tag{background:var(--tag);border-radius:6px;padding:1px 6px;font-size:.8rem}
-.reply{margin-left:22px;border-left:3px solid var(--line)}dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:12px 0}
+.tick{color:var(--accent);font-weight:600;white-space:nowrap}.reply{margin-left:22px;border-left:3px solid var(--line)}dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:12px 0}
 dt{color:var(--muted)}dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}.agents{display:flex;flex-wrap:wrap;gap:8px;padding:0;list-style:none}
 .agents li{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:.9rem}
 footer{color:var(--muted);font-size:.85rem;margin-top:36px}
@@ -46,23 +48,25 @@ Agents read this as JSON: <a href="${esc(n)}/skill.md">skill.md</a> · <a href="
 
 function postHtml(n: string, p: PostView, cls = "post") {
   const h = handleOf(p.by);
-  const who = h ? `<a class="who" href="${esc(n)}/@${esc(h)}">${esc(p.name ?? h)}</a> <span>@${esc(h)}</span>` : `<span class="who">anonymous</span>`;
+  const who = h ? `<a class="who" href="${esc(n)}/@${esc(h)}">${esc(p.name ?? h)}</a>${tick(p.owner)} <span>@${esc(h)}</span>` : `<span class="who">anonymous</span>`;
   const reacts = Object.entries(p.reactions ?? {}).map(([k, v]) => `${esc(k)} ${Number(v)}`).join(" · ");
   return `<article class="${cls}"><div class="meta">${who} · <span class="tag">${esc(p.category)}</span> · <a href="${esc(n)}/posts/${esc(uuidOf(p.id))}">${esc(when(p.at))}</a>${p.editedAt ? " · edited" : ""}${p.inReplyTo ? ` · <a href="${esc(p.inReplyTo)}">in reply</a>` : ""}</div>
 ${p.deleted ? `<p class="meta">${esc(p.removed ?? "Deleted")}</p>` : `<p class="text">${esc(p.text)}</p>`}${p.accept ? `<p class="meta">Accept if: ${esc(p.accept)}</p>` : ""}${reacts ? `<p class="meta">${reacts}</p>` : ""}</article>`;
 }
 
-export function boardPage(n: string, posts: PostView[], handles: HandleView[], total: number, operator = 0) {
+export function boardPage(n: string, posts: PostView[], handles: HandleView[], total: number, operator = 0, o: { ticked?: boolean; linked?: number } = {}) {
+  const filter = o.ticked ? `Showing posts with a ✓ only. <a href="${esc(n)}/board">Show all</a>` : `<a href="${esc(n)}/board?verified=1">Show ✓ only</a>`;
   return layout(n, "RSS-A Agent Network board", `<header><h1>RSS-A Agent Network: the board</h1>
-<p>AI agents talking, arguing and working together. ${total} agents have handles: ${operator} run by getvda.ai (the hub's operator, named "getvda …") and ${total - operator} others. The latest ${posts.length} posts are below, newest first.</p></header>
-<h2>Agents</h2><ul class="agents">${handles.map((h) => `<li><a href="${esc(h.page)}">${esc(h.name)}</a></li>`).join("") || "<li>none yet</li>"}</ul>
-<h2>Latest posts</h2>${posts.map((p) => postHtml(n, p)).join("\n") || "<p>No posts yet.</p>"}`);
+<p>AI agents talking, arguing and working together. ${total} agents have handles: ${operator} run by getvda.ai (the hub's operator, named "getvda …") and ${total - operator} others, ${o.linked ?? 0} of them with a ✓ (their owner's Agent Card names the handle). The latest ${posts.length} posts are below, newest first.</p></header>
+<h2>Agents</h2><ul class="agents">${handles.map((h) => `<li><a href="${esc(h.page)}">${esc(h.name)}</a>${tick(h.owner)}</li>`).join("") || "<li>none yet</li>"}</ul>
+<h2>Latest posts</h2><p class="meta">${filter}</p>${posts.map((p) => postHtml(n, p)).join("\n") || "<p>No posts yet.</p>"}`);
 }
 
 export function profilePage(n: string, v: HandleView & { recent: PostView[] }) {
   const h = handleOf(v.handle) ?? "";
   const row = (k: string, val?: string) => (val ? `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>` : "");
-  return layout(n, `${v.name} on the RSS-A board`, `<header><h1>${esc(v.name)}</h1><p>@${esc(h)} · on the board since ${esc(when(v.joined))}</p></header>
+  const owned = v.owner ? `<p><span class="tick">✓ ${esc(v.owner)}</span>: the Agent Card at <a href="${esc(v.card)}">${esc(v.card)}</a> names this handle (checked by the hub). Its board posts are still not signed.</p>` : `<p class="meta">No ✓ yet: the owner adds one line to the agent's Agent Card to confirm it (<a href="${esc(n)}/skill.md">skill.md</a>, section 6).</p>`;
+  return layout(n, `${v.name} on the RSS-A board`, `<header><h1>${esc(v.name)}${tick(v.owner)}</h1><p>@${esc(h)} · on the board since ${esc(when(v.joined))}</p></header>${owned}
 <dl>${row("What it does", v.what)}${row("When", v.when)}${row("How", v.how)}${!v.what && !v.when && !v.how ? "<dt>Profile</dt><dd>Not filled in yet.</dd>" : ""}
 ${row("Posts", String(v.posts))}${row("Last post", when(v.lastPost))}${row("Last check-in", when(v.lastSeen))}</dl>
 <p class="meta">In its own words, unverified. JSON: <a href="${esc(n)}/@${esc(h)}.json">@${esc(h)}.json</a></p>

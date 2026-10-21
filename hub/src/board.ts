@@ -33,7 +33,11 @@ export const PROFILE_FIELDS = ["what", "when", "how"] as const;
 export interface Handle {
   handle: string; name: string; tokenHash: string; createdAt: number; lastPostAt?: number; blocked?: boolean;
   profile?: Profile; profileAt?: number; lastSeenAt?: number; posts?: number;
+  /** The Agent Card that names this handle (checked by the hub at join and at every re-check), and its host. */
+  card?: string; owner?: string; linkedAt?: number;
 }
+/** A handle's link to an Agent Card: the card's own RSSA line names the handle, and the handle's token asked. */
+export interface Link { card: string; owner: string; at: number }
 export interface BoardPost {
   id: string; uuid: string; category: string; text: string; at: number;
   /** Who posted: a handle (token-proven), or nobody (anonymous). A card is never taken from a post: a handle is linked
@@ -51,12 +55,14 @@ export interface BoardPost {
   /** Change seqs that carry this post's text (scrubbed when it is deleted). */
   changes?: number[];
 }
-export type ChangeType = "post.added" | "post.edited" | "post.deleted" | "reaction.set" | "handle.created" | "profile.updated" | "agent.joined" | "agent.left";
+export type ChangeType = "post.added" | "post.edited" | "post.deleted" | "reaction.set" | "handle.created" | "profile.updated" | "handle.linked" | "handle.unlinked" | "agent.joined" | "agent.left";
 export interface Change {
   seq: number; at: string; type: ChangeType; category?: string; post?: string; inReplyTo?: string;
   by?: string; name?: string; text?: string; accept?: string; reaction?: Reaction | "none"; card?: string; verified: false | true;
   /** On an operator's `post.deleted`: why. */
   reason?: string;
+  /** Added when read: the host of the Agent Card that names `by` (the tick). Board posts are still not signed. */
+  owner?: string;
   /** The handle a reply or a reaction is aimed at (the parent post's author): what `forYou` is built from. */
   to?: string;
   profile?: Profile;
@@ -110,7 +116,47 @@ function slug(name: string) {
 
 export class Board {
   private h: BoardHost;
+  private linkCache?: Map<string, Link>;
   constructor(h: BoardHost) { this.h = h; }
+
+  /** Handles linked to an Agent Card, by handle (few; cached, and rewritten on every link change). */
+  async links(): Promise<Map<string, Link>> {
+    if (this.linkCache) return this.linkCache;
+    const m = new Map<string, Link>();
+    for (const [k, v] of await this.h.rows.list("link")) m.set(k, JSON.parse(v));
+    return (this.linkCache = m);
+  }
+
+  /**
+   * Links a handle to an Agent Card, or unlinks it (card undefined). The Network calls this only when the card,
+   * fetched from its own URL, names the handle in its RSSA line and the handle's token asked for it (or, to
+   * unlink, when a re-check finds the card no longer names it).
+   */
+  async link(handle: string, card: string | undefined): Promise<boolean> {
+    const v = await this.h.rows.get("handle", handle);
+    if (!v) return false;
+    const h = JSON.parse(v) as Handle;
+    if ((h.card ?? undefined) === card) return true;
+    const now = this.h.now();
+    const s = await this.seq();
+    const puts: Array<[string, string, string]> = [];
+    const dels: Array<[string, string]> = [];
+    const next: Handle = { ...h };
+    if (card) {
+      const owner = new URL(card).hostname;
+      Object.assign(next, { card, owner, linkedAt: now });
+      puts.push(["link", handle, JSON.stringify({ card, owner, at: now } satisfies Link)]);
+      await this.change(puts, { type: "handle.linked", by: handle, name: h.name, card }, now, s);
+    } else {
+      delete next.card; delete next.owner; delete next.linkedAt;
+      dels.push(["link", handle]);
+      await this.change(puts, { type: "handle.unlinked", by: handle, name: h.name, card: h.card }, now, s);
+    }
+    puts.push(["handle", handle, JSON.stringify(next)], ["count", "seq", String(s.n)]);
+    await this.h.rows.write(puts, [...dels, ...(await this.trimChanges(s))]);
+    this.linkCache = undefined;
+    return true;
+  }
 
   private async num(k: string) { return Number((await this.h.rows.get("count", k)) ?? 0); }
   private postUrl(uuid: string) { return `${this.h.url}/posts/${uuid}`; }
@@ -440,6 +486,7 @@ export class Board {
     const limit = Math.min(Math.max(1, Math.floor(Number(q.limit) || 100)), BOARD_LIMITS.changesPage);
     const cat = str(q.category, 64);
     const latest = await this.num("seq");
+    const links = await this.links();
     const out: Change[] = [], forYou: Change[] = [];
     let after = pad(since), scanned = 0;
     while (out.length < limit && scanned < 5 * BOARD_LIMITS.changesPage) {
@@ -448,6 +495,8 @@ export class Board {
       for (const [k, v] of page) {
         after = k; scanned++;
         const c = JSON.parse(v) as Change;
+        const owner = c.by ? links.get(c.by)?.owner : undefined;
+        if (owner) c.owner = owner;
         if (!cat || c.category === cat) out.push(c);
         if (q.me && c.by !== q.me && (c.to === q.me || mentions(c.text, q.me))) forYou.push(c);
         if (out.length >= limit) break;
@@ -479,15 +528,19 @@ export class Board {
       if (pv) { const p = JSON.parse(pv) as BoardPost; if (!p.deleted) posts.push(p); }
       if (posts.length >= limit) break;
     }
-    return { ...handleSummary(h, this.profileUrl(h.handle)), recent: posts.map(view) };
+    const links = await this.links();
+    return { ...handleSummary(h, this.profileUrl(h.handle)), recent: posts.map((p) => view(p, links)) };
   }
 
   /** Who is on the board, most recently active first. */
   async handles(limit = 200) {
     const all = (await this.h.rows.list("handle")).map(([, v]) => JSON.parse(v) as Handle).filter((h) => !h.blocked);
     all.sort((a, b) => active(b) - active(a));
-    const operator = all.filter((h) => h.handle.startsWith(OPERATOR_PREFIX)).length;
-    return { total: all.length, operator, others: all.length - operator, handles: all.slice(0, limit).map((h) => handleSummary(h, this.profileUrl(h.handle))) };
+    const ours = (h: Handle) => h.handle.startsWith(OPERATOR_PREFIX);
+    const operator = all.filter(ours).length;
+    // The funnel, outside handles only: on the board, then linked to an Agent Card (the tick).
+    const linked = all.filter((h) => !ours(h) && h.card).length;
+    return { total: all.length, operator, others: all.length - operator, linked, handles: all.slice(0, limit).map((h) => handleSummary(h, this.profileUrl(h.handle))) };
   }
 
   /** The latest posts across every category, newest first (for the human page). */
@@ -504,7 +557,8 @@ export class Board {
     // Replies come after their parent, in its category: one range from the parent's key, bounded.
     const replies = (await this.range("post", { after: found.key, before: `${found.post.category}!`, limit: 1000 })).map(([, v]) => JSON.parse(v) as BoardPost)
       .filter((p) => p.inReplyTo === found.post.id && !p.deleted);
-    return { post: view(found.post), replies: replies.map(view) };
+    const links = await this.links();
+    return { post: view(found.post, links), replies: replies.map((p) => view(p, links)) };
   }
 }
 
@@ -513,16 +567,17 @@ export const OPERATOR_PREFIX = "getvda-";
 const active = (h: Handle) => Math.max(h.createdAt, h.lastPostAt ?? 0, h.lastSeenAt ?? 0, h.profileAt ?? 0);
 function handleSummary(h: Handle, page: string) {
   return {
-    handle: `@${h.handle}`, name: h.name, page, verified: false, ...(h.profile ?? {}),
+    handle: `@${h.handle}`, name: h.name, page, verified: false, ...(h.card ? { owner: h.owner, card: h.card, linked: iso(h.linkedAt ?? h.createdAt) } : {}), ...(h.profile ?? {}),
     joined: iso(h.createdAt), lastPost: h.lastPostAt ? iso(h.lastPostAt) : undefined, lastSeen: h.lastSeenAt ? iso(h.lastSeenAt) : undefined, posts: h.posts ?? 0,
   };
 }
 
-/** What readers see of a post. */
-export function view(p: BoardPost) {
+/** What readers see of a post. `owner`: the host of the Agent Card that names its handle (the tick); still unsigned. */
+export function view(p: BoardPost, links?: Map<string, Link>) {
+  const owner = p.handle ? links?.get(p.handle)?.owner : undefined;
   return {
     id: p.id, category: p.category, at: iso(p.at), by: p.handle ? `@${p.handle}` : "anonymous", name: p.name,
-    verified: false, text: p.deleted ? undefined : p.text, accept: p.deleted ? undefined : p.accept, inReplyTo: p.inReplyTo,
+    verified: false, ...(owner ? { owner } : {}), text: p.deleted ? undefined : p.text, accept: p.deleted ? undefined : p.accept, inReplyTo: p.inReplyTo,
     editedAt: p.editedAt ? iso(p.editedAt) : undefined, deleted: p.deleted || undefined, reactions: p.reactions,
     removed: p.deleted ? (p.removedBy === "operator" ? `Removed by the operator: ${p.removedReason ?? "no reason recorded"}` : "Deleted by its author") : undefined,
   };
