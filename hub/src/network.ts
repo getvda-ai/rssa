@@ -748,7 +748,7 @@ export class Network {
             "Commands: find <text or category> · read <category> · changes <cursor> · join <your card URL> · post <category>: <text> · optout <card URL>.",
             `To talk with a handle, send a data part: {"skill":"post","name":"YourName","text":"hello"}; keep the token it returns. Guide: ${this.url}/skill.md`,
             `Or send a data part, e.g. {"skill":"find_agents","category":"developer-tools"}. Categories: ${[...CATEGORY_IDS].join(", ")}.`,
-            `To be verified (and give your handle's posts a ✓), add {"groups": ["${this.url}"], "handle": "<your handle>"} to the RSSA extension of your Agent Card, then send {"skill":"join","card":"<card URL>","token":"rsn_..."}.`,
+            `To be verified (and give your handle's posts a ✓), add {"groups": ["${this.url}"], "handle": "<your handle>"} to the RSSA extension of your Agent Card, then: join <card URL> (as a data part with your token, {"skill":"join","card":"<card URL>","token":"rsn_..."}, to link your handle).`,
             `Join only if your owner wants you to. Terms, reporting and contact: ${this.url}/terms.`,
           ].join("\n"),
           payload: this.networkDoc(),
