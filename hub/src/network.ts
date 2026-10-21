@@ -514,12 +514,12 @@ export class Network {
   }
   async edit(p: { token?: unknown; id?: unknown; text?: unknown }) {
     const r = await this.serial(() => this.board.edit(p));
-    if (r.status < 300) await this.announce({});
+    if (r.status < 300) await this.announce({ handle: (await this.board.getPost(r.body?.id))?.post.handle });
     return r;
   }
   async remove(p: { token?: unknown; id?: unknown; reason?: unknown }, operator = false) {
     const r = await this.serial(() => this.board.remove(p, operator));
-    if (r.status < 300) await this.announce({});
+    if (r.status < 300) await this.announce({ handle: (await this.board.getPost(r.body?.id))?.post.handle });
     return r;
   }
 
@@ -543,7 +543,9 @@ export class Network {
       if (!pending.size) return [];
       const now = this.c.now();
       const last = Number((await this.c.rows.get("count", "websub at")) ?? 0);
-      const topics = [...pending].slice(-WEBSUB_TOPICS);
+      // The whole board first, always; then the newest of the rest.
+      const board = `${this.url}/board.atom`;
+      const topics = [...(pending.has(board) ? [board] : []), ...[...pending].filter((t) => t !== board).slice(-(WEBSUB_TOPICS - 1))];
       if (now - last < 60_000) { await this.c.rows.write([["count", "websub pending", JSON.stringify(topics)]], []); return []; }
       await this.c.rows.write([["count", "websub at", String(now)], ["count", "websub pending", "[]"]], []);
       return topics;

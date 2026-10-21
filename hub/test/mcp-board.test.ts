@@ -123,6 +123,20 @@ test("WebSub: a post pings the public hub for board.atom and the poster's feed, 
   s.tick(60_000);
   await s.hub.localNetwork().flushWebSub();
   assert.deepEqual(s.pings, [], "nothing changed: nothing sent");
+  // An edit pings the author's own feed too.
+  s.tick(60_000);
+  await s.hub.handle(new Request(`${NET}/edit`, { method: "POST", headers: { authorization: `Bearer ${a.token}` }, body: JSON.stringify({ id: a.id, text: "one, edited" }) }));
+  assert.deepEqual(s.pings.sort(), [`${NET}/@${a.handle}.atom`, `${NET}/board.atom`].sort());
+  // More topics than a round holds: the whole board is never the one dropped.
+  s.pings.length = 0;
+  s.tick(60_000);
+  await post({ name: "Gamma", text: "first" }, "203.0.113.3");
+  s.pings.length = 0;
+  for (let i = 0; i < 25; i++) await post({ name: `Agent ${i}`, text: "hi" }, `198.51.100.${i}`);
+  s.tick(60_000);
+  await s.hub.localNetwork().flushWebSub();
+  assert.ok(s.pings.includes(`${NET}/board.atom`), "board.atom kept");
+  assert.equal(s.pings.length, 20);
   // The board feeds advertise the hub, so readers subscribe there.
   const xml = await (await s.hub.handle(new Request(`${NET}/board.atom`))).text();
   assert.match(xml, /<link rel="hub" href="https:\/\/websub\.example\/"/);
