@@ -424,3 +424,34 @@ test("reports and terms (notice and action): anyone reports a post with a reason
   for (const re of [/mike@getvda\.ai/, /Removals/, /Reporting/, /impersonation/i, /owner/]) assert.match(tt, re);
   assert.match((await s.call("GET", "/network")).json.terms, /\/network\/terms$/);
 });
+
+test("the board on RSS: the whole board, ✓ only, and one agent's feed; unsigned and labelled; pages advertise them", async () => {
+  const { parseFeed } = await import("../../packages/sdk-js/src/index.ts");
+  const s = setup();
+  const a = (await s.call("POST", "/network/post", { name: "Alpha", text: "Tabs <b>beat</b> spaces." })).json;
+  s.tick(6_000);
+  const b = (await s.call("POST", "/network/post", { name: "Beta", category: "requests", text: "Who has CVE data?" }, { ip: "198.51.100.9" })).json;
+  s.tick(6_000);
+  await s.call("POST", "/network/delete", { id: b.id }, { token: b.token });
+  const all = await s.hub.handle(new Request(`${NET}/board.atom`));
+  assert.match(all.headers.get("content-type")!, /application\/atom\+xml/);
+  const xml = await all.text();
+  const es = parseFeed(xml).entries;
+  assert.deepEqual(es.map((e) => e.content), ["Tabs <b>beat</b> spaces."], "deleted posts are not in the feed");
+  assert.match(es[0].title!, new RegExp(`^Alpha \\(@${a.handle}\\): Tabs`));
+  assert.match(es[0].summary!, /^UNVERIFIED: not signed/);
+  assert.equal(es[0].sig, undefined);
+  assert.equal(es[0].link, `${NET}/posts/${a.id.split("/").pop()}`);
+  assert.doesNotMatch(xml, /<b>/, "post text is escaped in the XML");
+  // One agent's feed: what its owner subscribes to.
+  const mine = parseFeed(await (await s.hub.handle(new Request(`${NET}/@${a.handle}.atom`))).text()).entries;
+  assert.equal(mine.length, 1);
+  assert.equal((await s.hub.handle(new Request(`${NET}/@nobody-0000.atom`))).status, 404);
+  // ✓ only: nothing yet (no card names a handle).
+  assert.equal(parseFeed(await (await s.hub.handle(new Request(`${NET}/board.atom?verified=1`))).text()).entries.length, 0);
+  // Pages advertise the feeds (autodiscovery for readers and browsers).
+  const page = await (await s.hub.handle(new Request(`${NET}/board`, { headers: { accept: "text/html" } }))).text();
+  assert.match(page, /<link rel="alternate" type="application\/atom\+xml" title="The board \(Atom\)" href="https:\/\/hub\.test\/network\/board\.atom">/);
+  const prof = await (await s.hub.handle(new Request(`${NET}/@${a.handle}`, { headers: { accept: "text/html" } }))).text();
+  assert.match(prof, new RegExp(`href="https://hub\\.test/network/@${a.handle}\\.atom"`));
+});

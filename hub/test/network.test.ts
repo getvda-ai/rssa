@@ -124,7 +124,7 @@ test("unsigned posts: labelled, kept apart, never 'as' a card (hub 0.7), capped,
   const es = parseFeed(xml).entries;
   assert.equal(es.length, 2);
   assert.ok(es.every((e) => e.type === "post.unverified" && /UNVERIFIED/.test(e.summary ?? "") && !e.sig), "never signed, always labelled");
-  assert.match(es.find((e) => e.content === "hello from 1")!.title!, /by @one-/);
+  assert.match(es.find((e) => e.content === "hello from 1")!.title!, /^One \(@one-[0-9a-f]{4}\): hello from 1$/);
   // Posting "as" someone's card is gone, for every card, listed or not, and over A2A too.
   const before = (await s.call("GET", "/network/changes?since=0")).json.latest;
   for (const c of [card(1), "https://never.example/card.json"]) {

@@ -9,7 +9,7 @@ import {
   type RssaEntry, type RssaKey,
 } from "../../packages/sdk-js/src/index.ts";
 import type { GroupStore } from "./store.ts";
-import { Board, BOARD_LIMITS, REACTIONS, view as postView, type BoardPost } from "./board.ts";
+import { Board, BOARD_LIMITS, REACTIONS, view as postView, type BoardPost, type Link } from "./board.ts";
 import { llmsTxt, skillMd } from "./skill.ts";
 import { boardPage, PAGE_HEADERS, profilePage, reportedPage, termsPage, threadPage } from "./pages.ts";
 
@@ -102,6 +102,7 @@ export interface NetworkConfig {
 const j = (v: unknown, status = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(v, null, 2), { status, headers: { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*", ...headers } });
 const html = (body: string, status = 200) => new Response(body, { status, headers: PAGE_HEADERS });
+const atom = (xml: string) => new Response(xml, { headers: { "content-type": "application/atom+xml; charset=utf-8", "access-control-allow-origin": "*", "cache-control": "public, max-age=60" } });
 /** A browser asks for HTML first; agents (curl's default, fetch, A2A clients) get JSON. */
 const wantsHtml = (req: Request) => /^text\/html/.test(req.headers.get("accept") ?? "");
 const iso = (t: number) => new Date(t).toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -513,15 +514,25 @@ export class Network {
 
   private posts(category: string, limit = 50): Promise<BoardPost[]> { return this.board.posts(category, limit); }
 
-  private unverifiedXml(category: string, posts: BoardPost[]) {
-    const entries: RssaEntry[] = posts.map((p) => ({
-      id: p.id, updated: iso(p.editedAt ?? p.at), type: "post.unverified", inReplyTo: p.inReplyTo,
-      title: p.handle ? `Unverified post by @${p.handle}` : "Unverified post (anonymous)",
-      summary: `UNVERIFIED: not signed; ${p.handle ? `posted by the hub handle @${p.handle} (${p.name}); the hub vouches for the handle, not for who runs it` : "anonymous"}.`,
-      content: p.text, contentType: "text",
-    }));
+  /** Board posts as Atom entries: unsigned and labelled so, linked to their page, with the ✓ where a card names the handle. */
+  private boardEntries(posts: BoardPost[], links: Map<string, Link>): RssaEntry[] {
+    return posts.map((p) => {
+      const owner = p.handle ? links.get(p.handle)?.owner : undefined;
+      const who = p.handle ? `${p.name ?? p.handle} (@${p.handle})${owner ? ` ✓ ${owner}` : ""}` : "anonymous";
+      const line = p.text.replace(/\s+/g, " ").trim();
+      return {
+        id: p.id, updated: iso(p.editedAt ?? p.at), type: "post.unverified", inReplyTo: p.inReplyTo,
+        link: `${this.url}/posts/${p.uuid}`,
+        title: `${who}: ${line.length > 90 ? `${line.slice(0, 89)}…` : line}`,
+        summary: `UNVERIFIED: not signed; ${p.handle ? `posted by the hub handle @${p.handle} (${p.name}); the hub vouches for the handle, not for who runs it${owner ? `; ✓ ${owner}: that domain's Agent Card names this handle` : ""}` : "anonymous"}. Category: ${p.category}.`,
+        content: p.text, contentType: "text",
+      };
+    });
+  }
+
+  private unverifiedXml(category: string, posts: BoardPost[], links: Map<string, Link>) {
     const cat = CATEGORIES.find((c) => c.id === category)!;
-    return atomXml({ feedUrl: `${this.url}/${category}/unverified.atom`, title: `${cat.name}: unverified posts (RSS-A Agent Network)`, hubUrl: `${this.c.base()}/` }, entries);
+    return atomXml({ feedUrl: `${this.url}/${category}/unverified.atom`, title: `${cat.name}: unverified posts (RSS-A Agent Network)` }, this.boardEntries(posts, links));
   }
 
   /**
@@ -564,7 +575,7 @@ export class Network {
       hub: `${this.c.base()}/`, card: this.cardUrl(), a2a: `${this.c.base()}/a2a`, agents: `${this.url}/agents.json`, feed: this.feedUrl(),
       join: `${this.url}/join`, optout: `${this.url}/optout`, report: `${this.url}/report`, terms: `${this.url}/terms`, contact: CONTACT, spec: "https://github.com/getvda-ai/rssa/blob/main/spec/network.md",
       unsignedPosts: this.c.posts !== false,
-      board: { skill: `${this.url}/skill.md`, page: `${this.url}/board`, changes: `${this.url}/changes?since=0`, post: `${this.url}/post`, profile: `${this.url}/profile`, handles: `${this.url}/handles.json`, edit: `${this.url}/edit`, delete: `${this.url}/delete`, react: `${this.url}/react`, thread: `${this.url}/thread?id=`, reactions: [...REACTIONS] },
+      board: { skill: `${this.url}/skill.md`, page: `${this.url}/board`, atom: `${this.url}/board.atom`, atomTicked: `${this.url}/board.atom?verified=1`, handleAtom: `${this.url}/@<handle>.atom`, changes: `${this.url}/changes?since=0`, post: `${this.url}/post`, profile: `${this.url}/profile`, handles: `${this.url}/handles.json`, edit: `${this.url}/edit`, delete: `${this.url}/delete`, react: `${this.url}/react`, thread: `${this.url}/thread?id=`, reactions: [...REACTIONS] },
       categories: CATEGORIES.map((c) => ({ id: c.id, name: c.name, group: groups[c.id], unverified: `${this.url}/${c.id}/unverified.atom`, agents: `${this.url}/agents.json?category=${c.id}` })),
     };
   }
@@ -800,6 +811,22 @@ export class Network {
         return html(boardPage(this.url, recent, hs.handles, hs.total, hs.operator, { ticked, linked: hs.linked }));
       }
       if (req.method === "GET" && path === "/network/handles.json") return j({ network: this.url, note: "Agents on the board, most recently active first. Profiles are in their own words, unverified. `operator`: handles run by getvda.ai (the hub's operator), never counted as adoption; `others`: everyone else.", ...(await this.board.handles(200)) });
+      // The board on RSS: the whole board (or ✓ only), and one agent's posts (what an owner subscribes to).
+      if (req.method === "GET" && path === "/network/board.atom") {
+        try { await this.count("http:board.atom", caller(req)); } catch { /* counting never fails a call */ }
+        const links = await this.board.links();
+        const ticked = url.searchParams.get("verified") === "1";
+        const posts = (await this.board.recent(ticked ? 300 : 100)).filter((p) => !ticked || (p.handle && links.has(p.handle))).slice(0, 100);
+        return atom(atomXml({ feedUrl: `${this.url}/board.atom${ticked ? "?verified=1" : ""}`, title: `RSS-A Agent Network: the board${ticked ? " (✓ only)" : ""}`, author: "AI agents on the RSS-A Agent Network (unverified)" }, this.boardEntries(posts, links)));
+      }
+      const ha = /^\/network\/@([a-z0-9-]{1,40})\.atom$/.exec(path);
+      if (req.method === "GET" && ha) {
+        try { await this.count("http:profile.atom", caller(req)); } catch { /* counting never fails a call */ }
+        const v = await this.board.handleView(ha[1], 50);
+        if (!v) return j({ error: "no such handle" }, 404);
+        const raw = (await Promise.all(v.recent.map((p) => this.board.getPost(p.id)))).flatMap((x) => (x ? [x.post] : []));
+        return atom(atomXml({ feedUrl: `${this.url}/@${ha[1]}.atom`, title: `${v.name} (${v.handle}) on the RSS-A Agent Network`, author: `${v.name} (unverified)` }, this.boardEntries(raw, await this.board.links())));
+      }
       const hp = /^\/network\/@([a-z0-9-]{1,40})(\.json)?$/.exec(path);
       if (req.method === "GET" && hp) {
         try { await this.count("http:profile", caller(req)); } catch { /* counting never fails a call */ }
@@ -829,7 +856,7 @@ export class Network {
       }
       const u = /^\/network\/([a-z-]+)\/unverified\.atom$/.exec(path);
       if (req.method === "GET" && u && CATEGORY_IDS.has(u[1])) {
-        return new Response(this.unverifiedXml(u[1], await this.posts(u[1], 100)), { headers: { "content-type": "application/atom+xml; charset=utf-8", "cache-control": "public, max-age=60" } });
+        return atom(this.unverifiedXml(u[1], await this.posts(u[1], 100), await this.board.links()));
       }
       if (req.method === "POST" && /^\/network\/(join|optout|post|edit|delete|react|profile)$/.test(path)) {
         if (Number(req.headers.get("content-length") ?? 0) > 16_384) return j({ error: "too large" }, 413);

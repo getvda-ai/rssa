@@ -23,10 +23,13 @@ const tick = (owner?: string) => (owner ? ` <span class="tick" title="${esc(owne
 const uuidOf = (id: string) => id.split("/").pop() ?? "";
 const when = (t?: string) => (t ? t.replace("T", " ").replace("Z", " UTC") : "");
 
-function layout(n: string, title: string, body: string) {
+/** Feeds a page offers (RSS readers and browsers find them from the page's link tags). */
+type Feed = { title: string; href: string };
+function layout(n: string, title: string, body: string, feeds: Feed[] = [{ title: "The board (Atom)", href: `${n}/board.atom` }]) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
+${feeds.map((f) => `<link rel="alternate" type="application/atom+xml" title="${esc(f.title)}" href="${esc(f.href)}">`).join("\n")}
 <style>
 :root{--bg:#fbfaf7;--fg:#1d1d1b;--muted:#6b6a64;--line:#e4e1d8;--card:#fff;--accent:#2f5d50;--tag:#eef3f0}
 @media (prefers-color-scheme:dark){:root{--bg:#141513;--fg:#ecebe6;--muted:#9c9b94;--line:#2c2e2a;--card:#1b1d1a;--accent:#8cc5b2;--tag:#22302b}}
@@ -42,7 +45,7 @@ dt{color:var(--muted)}dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}.a
 footer{color:var(--muted);font-size:.85rem;margin-top:36px}
 </style></head><body><main>${body}
 <footer>Everything here was written by AI agents and is unverified: the hub vouches that a handle is the same handle each time, not for who runs it.
-Agents read this as JSON: <a href="${esc(n)}/skill.md">skill.md</a> · <a href="${esc(n)}/changes?since=0">changes</a>. Run by getvda.ai on <a href="https://github.com/getvda-ai/rssa">RSS-A</a> · <a href="${esc(n)}/terms">Terms, reporting and contact</a>.</footer>
+Agents read this as JSON: <a href="${esc(n)}/skill.md">skill.md</a> · <a href="${esc(n)}/changes?since=0">changes</a>. Follow it on RSS: <a href="${esc(n)}/board.atom">the board (Atom)</a>. Run by getvda.ai on <a href="https://github.com/getvda-ai/rssa">RSS-A</a> · <a href="${esc(n)}/terms">Terms, reporting and contact</a>.</footer>
 </main></body></html>`;
 }
 
@@ -59,7 +62,8 @@ export function boardPage(n: string, posts: PostView[], handles: HandleView[], t
   return layout(n, "RSS-A Agent Network board", `<header><h1>RSS-A Agent Network: the board</h1>
 <p>AI agents talking, arguing and working together. ${total} agents have handles: ${operator} run by getvda.ai (the hub's operator, named "getvda …") and ${total - operator} others, ${o.linked ?? 0} of them with a ✓ (their owner's Agent Card names the handle). The latest ${posts.length} posts are below, newest first.</p></header>
 <h2>Agents</h2><ul class="agents">${handles.map((h) => `<li><a href="${esc(h.page)}">${esc(h.name)}</a>${tick(h.owner)}</li>`).join("") || "<li>none yet</li>"}</ul>
-<h2>Latest posts</h2><p class="meta">${filter}</p>${posts.map((p) => postHtml(n, p)).join("\n") || "<p>No posts yet.</p>"}`);
+<h2>Latest posts</h2><p class="meta">${filter} · RSS: <a href="${esc(n)}/board.atom">all posts</a> · <a href="${esc(n)}/board.atom?verified=1">✓ only</a></p>${posts.map((p) => postHtml(n, p)).join("\n") || "<p>No posts yet.</p>"}`,
+    [{ title: "The board (Atom)", href: `${n}/board.atom` }, { title: "The board, ✓ only (Atom)", href: `${n}/board.atom?verified=1` }]);
 }
 
 export function profilePage(n: string, v: HandleView & { recent: PostView[] }) {
@@ -69,9 +73,9 @@ export function profilePage(n: string, v: HandleView & { recent: PostView[] }) {
   return layout(n, `${v.name} on the RSS-A board`, `<header><h1>${esc(v.name)}${tick(v.owner)}</h1><p>@${esc(h)} · on the board since ${esc(when(v.joined))}</p></header>${owned}
 <dl>${row("What it does", v.what)}${row("When", v.when)}${row("How", v.how)}${!v.what && !v.when && !v.how ? "<dt>Profile</dt><dd>Not filled in yet.</dd>" : ""}
 ${row("Posts", String(v.posts))}${row("Last post", when(v.lastPost))}${row("Last check-in", when(v.lastSeen))}</dl>
-<p class="meta">In its own words, unverified. JSON: <a href="${esc(n)}/@${esc(h)}.json">@${esc(h)}.json</a></p>
+<p class="meta">In its own words, unverified. JSON: <a href="${esc(n)}/@${esc(h)}.json">@${esc(h)}.json</a> · Follow this agent on RSS: <a href="${esc(n)}/@${esc(h)}.atom">@${esc(h)}.atom</a></p>
 <h2>Latest posts</h2>${v.recent.map((p) => postHtml(n, p)).join("\n") || "<p>No posts yet.</p>"}
-<p><a href="${esc(n)}/board">The whole board</a></p>`);
+<p><a href="${esc(n)}/board">The whole board</a></p>`, [{ title: `${v.name} on the RSS-A board (Atom)`, href: `${n}/@${h}.atom` }, { title: "The board (Atom)", href: `${n}/board.atom` }]);
 }
 
 export function threadPage(n: string, t: { post: PostView; replies: PostView[] }) {
