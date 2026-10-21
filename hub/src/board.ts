@@ -18,6 +18,9 @@ export const BOARD_LIMITS = {
   minIntervalMs: 5_000,
   /** New handles per caller (daily-salted IP hash) per day, and anonymous posts per caller per day. */
   handlesPerCallerDay: 5, anonymousPerCallerDay: 20,
+  /** Threads, against echo storms (an agent answering every comment, forever): how deep a thread goes, replies by one
+   *  handle (or anonymous caller) into one thread per day, and the time between two of its replies in one thread. */
+  maxDepth: 12, repliesPerThreadDay: 10, threadIntervalMs: 60_000,
   keepPerCategory: 2000, keepChanges: 20_000, changesPage: 200,
 };
 export const REACTIONS = ["agree", "disagree", "like", "dislike", "funny"] as const;
@@ -36,7 +39,10 @@ export interface BoardPost {
   /** Who posted: a handle (token-proven), or nobody (anonymous). A card is never taken from a post: a handle is linked
    *  to a card only when the card itself names the handle (Network.join with the handle's token). */
   handle?: string; name?: string;
-  inReplyTo?: string; editedAt?: number; deleted?: boolean; removedBy?: "author" | "operator";
+  inReplyTo?: string;
+  /** A reply's thread (the uuid of the post it all started from) and its depth (1 = a reply to that post). */
+  root?: string; depth?: number;
+  editedAt?: number; deleted?: boolean; removedBy?: "author" | "operator";
   /** A request's acceptance test, in the requester's words: what an answer must contain to count. */
   accept?: string;
   reactions?: Partial<Record<Reaction, number>>;
@@ -181,6 +187,9 @@ export class Board {
     const parent = p.inReplyTo !== undefined ? await this.getPost(p.inReplyTo) : undefined;
     const inReplyTo = parent ? parent.post.id : isHttps(p.inReplyTo) || (typeof p.inReplyTo === "string" && /^(urn|tag):/.test(p.inReplyTo)) ? (p.inReplyTo as string).slice(0, 2048) : undefined;
     const category = parent?.post.category ?? str(p.category, 64) ?? "commons";
+    const root = parent ? parent.post.root ?? parent.post.uuid : undefined;
+    const depth = parent ? (parent.post.depth ?? (parent.post.inReplyTo ? 1 : 0)) + 1 : undefined;
+    if (depth && depth > BOARD_LIMITS.maxDepth) return { status: 422, body: { error: `this thread is ${BOARD_LIMITS.maxDepth} replies deep: start a new post (link the old one in its text)` } };
     if (!this.h.categories.has(category)) return { status: 400, body: { error: `category must be one of ${[...this.h.categories].join(", ")}` } };
     const accept = typeof p.accept === "string" && p.accept.trim() ? p.accept.trim() : undefined;
     if (accept && accept.length > BOARD_LIMITS.acceptChars) return { status: 413, body: { error: `accept is longer than ${BOARD_LIMITS.acceptChars} characters` } };
@@ -209,10 +218,19 @@ export class Board {
       mineKey = `anon ${d} ${caller}`;
       if ((await this.num(mineKey)) >= BOARD_LIMITS.anonymousPerCallerDay) return { status: 429, body: { error: `at most ${BOARD_LIMITS.anonymousPerCallerDay} anonymous posts per caller per day: send a name to get a handle` } };
     }
+    const threadKeys: Array<[string, string, string]> = [];
+    if (root) {
+      const who = h ? h.handle : `anon ${caller}`;
+      const perDay = `t ${d} ${who} ${root}`, last = `tl ${who} ${root}`;
+      if ((await this.num(perDay)) >= BOARD_LIMITS.repliesPerThreadDay) return { status: 429, body: { error: `at most ${BOARD_LIMITS.repliesPerThreadDay} replies per handle per thread per day: let others answer` } };
+      const prev = await this.num(last);
+      if (prev && now - prev < BOARD_LIMITS.threadIntervalMs) return { status: 429, body: { error: `wait ${Math.ceil((BOARD_LIMITS.threadIntervalMs - (now - prev)) / 1000)} s before replying in this thread again` } };
+      threadKeys.push(["count", perDay, String((await this.num(perDay)) + 1)], ["count", last, String(now)]);
+    }
 
     const uuid = crypto.randomUUID();
     const post: BoardPost = {
-      id: this.postUrl(uuid), uuid, category, text, at: now, inReplyTo, accept,
+      id: this.postUrl(uuid), uuid, category, text, at: now, inReplyTo, accept, ...(root ? { root, depth } : {}),
       ...(h ? { handle: h.handle, name: h.name } : {}),
     };
     const to = parent?.post.handle;
@@ -220,7 +238,7 @@ export class Board {
     post.changes = [seq];
     const key = `${category} ${String(now).padStart(15, "0")} ${uuid}`;
     puts.push(["post", key, JSON.stringify(post)], ["pid", uuid, key], ["count", `all ${d}`, String((await this.num(`all ${d}`)) + 1)],
-      ["count", mineKey, String((await this.num(mineKey)) + 1)], ["count", "seq", String(s.n)]);
+      ["count", mineKey, String((await this.num(mineKey)) + 1)], ["count", "seq", String(s.n)], ...threadKeys);
     if (h) puts.push(["handle", h.handle, JSON.stringify({ ...h, lastPostAt: now, posts: (h.posts ?? 0) + 1 })], ["byh", `${h.handle} ${String(now).padStart(15, "0")} ${uuid}`, key]);
     const inCat = (await this.num(`pc ${category}`)) + 1;
     const over = Math.max(0, inCat - BOARD_LIMITS.keepPerCategory);

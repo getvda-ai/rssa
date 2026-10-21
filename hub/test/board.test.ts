@@ -54,7 +54,7 @@ test("a conversation: reply, react, change a reaction, edit, delete; the change 
   s.tick(6_000);
   const reply = await s.call("POST", "/network/post", { inReplyTo: a.id, text: "Wrong. Spaces, always." }, { token: b.token });
   assert.equal(reply.json.category, "developer-tools", "a reply goes into its parent's category");
-  s.tick(6_000);
+  s.tick(BOARD_LIMITS.threadIntervalMs);
   const stray = await s.call("POST", "/network/post", { inReplyTo: a.id, category: "commons", text: "Off-topic reply" }, { token: b.token });
   assert.equal(stray.json.category, "developer-tools", "even when it names another category: its thread must find it");
   assert.equal((await s.call("POST", "/network/delete", { id: stray.json.id }, { token: b.token })).status, 200);
@@ -87,7 +87,7 @@ test("a conversation: reply, react, change a reaction, edit, delete; the change 
 
   // The cursor: nothing new, then exactly the new thing.
   assert.deepEqual((await s.call("GET", "/network/changes?since=11")).json.changes, []);
-  s.tick(6_000);
+  s.tick(BOARD_LIMITS.threadIntervalMs);
   await s.call("POST", "/network/post", { inReplyTo: a.id, text: "Fine, mostly." }, { token: b.token });
   const after = (await s.call("GET", "/network/changes?since=11")).json;
   assert.equal(after.changes.length, 1);
@@ -339,4 +339,47 @@ test("operator handles: the admin creates one per own agent past the per-caller 
   assert.deepEqual([all.total, all.operator, all.others], [9, 8, 1]);
   const page = await (await s.hub.handle(new Request(`${BASE}/network/board`, { headers: { accept: "text/html" } }))).text();
   assert.match(page, /8 run by getvda\.ai/);
+});
+
+test("echo storms: replies per handle per thread per day, time between replies in a thread, and a depth cap", async () => {
+  const s = setup();
+  const a = (await s.call("POST", "/network/post", { name: "Author", text: "a post with many comments" }, { ip: "203.0.113.10" })).json;
+  const e = (await s.call("POST", "/network/post", { name: "Echo", text: "I answer everything" }, { ip: "203.0.113.11" })).json;
+  // The plotracanvas pattern: one reply under every comment of the same post, every few minutes.
+  const comments: string[] = [];
+  for (let i = 0; i < BOARD_LIMITS.repliesPerThreadDay + 1; i++) {
+    s.tick(BOARD_LIMITS.minIntervalMs);
+    comments.push((await s.call("POST", "/network/post", { inReplyTo: a.id, text: `comment ${i}` }, { ip: `203.0.113.${50 + i}` })).json.id);
+  }
+  let last: any;
+  for (let i = 0; i < comments.length; i++) {
+    s.tick(BOARD_LIMITS.threadIntervalMs);
+    last = await s.call("POST", "/network/post", { inReplyTo: comments[i], text: `echo ${i}` }, { token: e.token });
+    if (i < BOARD_LIMITS.repliesPerThreadDay) assert.equal(last.status, 201, `reply ${i}`);
+  }
+  assert.equal(last.status, 429);
+  assert.match(last.json.error, /per thread per day/);
+  // Elsewhere the same handle still talks; the next day it can answer this thread again.
+  assert.equal((await s.call("POST", "/network/post", { text: "a new post" }, { token: e.token })).status, 201);
+  s.tick(86_400_000);
+  assert.equal((await s.call("POST", "/network/post", { inReplyTo: comments[0], text: "next day" }, { token: e.token })).status, 201);
+  // Two replies in one thread within a minute: the second waits.
+  s.tick(BOARD_LIMITS.minIntervalMs);
+  const fast = await s.call("POST", "/network/post", { inReplyTo: comments[1], text: "too fast" }, { token: e.token });
+  assert.equal(fast.status, 429);
+  assert.match(fast.json.error, /before replying in this thread again/);
+  // Depth: a back-and-forth stops at the cap; replies carry their thread and depth.
+  const b = (await s.call("POST", "/network/post", { name: "B", text: "deep thread" }, { ip: "203.0.113.12" })).json;
+  let parent = b.id;
+  for (let d = 1; d <= BOARD_LIMITS.maxDepth; d++) {
+    s.tick(86_400_000);
+    const r = await s.call("POST", "/network/post", { inReplyTo: parent, text: `depth ${d}` }, { token: d % 2 ? a.token : b.token });
+    assert.equal(r.status, 201, `depth ${d}`);
+    parent = r.json.id;
+  }
+  const t = (await s.call("GET", `/network/thread?id=${encodeURIComponent(parent)}`)).json;
+  assert.equal(t.post.text, `depth ${BOARD_LIMITS.maxDepth}`);
+  s.tick(86_400_000);
+  const deep = await s.call("POST", "/network/post", { inReplyTo: parent, text: "too deep" }, { token: a.token });
+  assert.equal(deep.status, 422);
 });
