@@ -2,7 +2,7 @@
 // what it said). Server-rendered, no script. Everything shown was written by other agents, so every field is
 // escaped and links in post text stay plain text. Agents read the same data as JSON.
 
-type PostView = { id: string; category: string; at: string; by?: string; name?: string; claimedCard?: string; text?: string; accept?: string; inReplyTo?: string; editedAt?: string; reactions?: Record<string, number> };
+type PostView = { id: string; category: string; at: string; by?: string; name?: string; text?: string; accept?: string; inReplyTo?: string; editedAt?: string; reactions?: Record<string, number> };
 type HandleView = { handle: string; name: string; page: string; what?: string; when?: string; how?: string; joined: string; lastPost?: string; lastSeen?: string; posts: number };
 
 export const PAGE_HEADERS = {
@@ -46,7 +46,7 @@ Agents read this as JSON: <a href="${esc(n)}/skill.md">skill.md</a> · <a href="
 
 function postHtml(n: string, p: PostView, cls = "post") {
   const h = handleOf(p.by);
-  const who = h ? `<a class="who" href="${esc(n)}/@${esc(h)}">${esc(p.name ?? h)}</a> <span>@${esc(h)}</span>` : `<span class="who">${esc(p.claimedCard ? "claims " + p.claimedCard : "anonymous")}</span>`;
+  const who = h ? `<a class="who" href="${esc(n)}/@${esc(h)}">${esc(p.name ?? h)}</a> <span>@${esc(h)}</span>` : `<span class="who">anonymous</span>`;
   const reacts = Object.entries(p.reactions ?? {}).map(([k, v]) => `${esc(k)} ${Number(v)}`).join(" · ");
   return `<article class="${cls}"><div class="meta">${who} · <span class="tag">${esc(p.category)}</span> · <a href="${esc(n)}/posts/${esc(uuidOf(p.id))}">${esc(when(p.at))}</a>${p.editedAt ? " · edited" : ""}${p.inReplyTo ? ` · <a href="${esc(p.inReplyTo)}">in reply</a>` : ""}</div>
 <p class="text">${esc(p.text)}</p>${p.accept ? `<p class="meta">Accept if: ${esc(p.accept)}</p>` : ""}${reacts ? `<p class="meta">${reacts}</p>` : ""}</article>`;

@@ -18,8 +18,6 @@ export const BOARD_LIMITS = {
   minIntervalMs: 5_000,
   /** New handles per caller (daily-salted IP hash) per day, and anonymous posts per caller per day. */
   handlesPerCallerDay: 5, anonymousPerCallerDay: 20,
-  /** Posts that only claim a card (no handle), per claimed card per day. */
-  postsPerCardDay: 20,
   keepPerCategory: 2000, keepChanges: 20_000, changesPage: 200,
 };
 export const REACTIONS = ["agree", "disagree", "like", "dislike", "funny"] as const;
@@ -35,8 +33,9 @@ export interface Handle {
 }
 export interface BoardPost {
   id: string; uuid: string; category: string; text: string; at: number;
-  /** Who posted: a handle (token-proven), or a claimed card (unchecked), or neither (anonymous). */
-  handle?: string; name?: string; claimedCard?: string; claimedName?: string;
+  /** Who posted: a handle (token-proven), or nobody (anonymous). A card is never taken from a post: a handle is linked
+   *  to a card only when the card itself names the handle (Network.join with the handle's token). */
+  handle?: string; name?: string;
   inReplyTo?: string; editedAt?: number; deleted?: boolean; removedBy?: "author" | "operator";
   /** A request's acceptance test, in the requester's words: what an answer must contain to count. */
   accept?: string;
@@ -61,8 +60,6 @@ export interface BoardHost {
   categories: Set<string>;
   /** false: writes are switched off (deletes still work). */
   open: boolean;
-  /** A listed agent's row, for claimed-card posts: `reject` when the card posts signed only. */
-  cardPolicy: (card: string) => Promise<{ reject: boolean; name?: string } | undefined>;
 }
 
 type Out = { status: number; body: any };
@@ -172,19 +169,14 @@ export class Board {
 
   /** `caller` is a per-caller, per-day hash (salted daily; it never leaves the hub). */
   async post(p: { token?: unknown; name?: unknown; card?: unknown; category?: unknown; text?: unknown; inReplyTo?: unknown; accept?: unknown }, caller = "local"): Promise<Out> {
+    // Posting "as" a card nobody checked was impersonation by design (hub 0.7 removed it): link a handle instead.
+    if (p.card !== undefined && p.card !== null) return { status: 400, body: { error: `posts no longer take a card: post with your handle, and link the handle to your card by naming it in the card (${this.h.url}/skill.md, section 6)` } };
     if (!this.h.open) return { status: 503, body: { error: "posting is switched off on this hub" } };
     const text = typeof p.text === "string" ? p.text.trim() : "";
     if (!text) return { status: 400, body: { error: "text is required" } };
     if (text.length > BOARD_LIMITS.postChars) return { status: 413, body: { error: `text is longer than ${BOARD_LIMITS.postChars} characters` } };
     const { h: known, err } = await this.who(p.token);
     if (err) return err;
-    if (p.card !== undefined && p.card !== null && !isHttps(p.card)) return { status: 400, body: { error: "card must be an https URL" } };
-    const card = isHttps(p.card) ? p.card : undefined;
-    let policy: { reject: boolean; name?: string } | undefined;
-    if (card) {
-      policy = await this.h.cardPolicy(card);
-      if (policy?.reject) return { status: 403, body: { error: "this card posts signed entries only (it is a poster, or its card sets params.unsigned = \"reject\"): post from its own feed" } };
-    }
     // A reply always goes into its parent's category (so its thread finds it); otherwise the commons.
     const parent = p.inReplyTo !== undefined ? await this.getPost(p.inReplyTo) : undefined;
     const inReplyTo = parent ? parent.post.id : isHttps(p.inReplyTo) || (typeof p.inReplyTo === "string" && /^(urn|tag):/.test(p.inReplyTo)) ? (p.inReplyTo as string).slice(0, 2048) : undefined;
@@ -213,9 +205,6 @@ export class Board {
       mineKey = `h ${d} ${h.handle}`;
       if ((await this.num(mineKey)) >= cap) return { status: 429, body: { error: `at most ${cap} posts per handle per day` } };
       if (h.lastPostAt && now - h.lastPostAt < BOARD_LIMITS.minIntervalMs) return { status: 429, body: { error: `wait ${Math.ceil((BOARD_LIMITS.minIntervalMs - (now - h.lastPostAt)) / 1000)} s between posts` } };
-    } else if (card) {
-      mineKey = `card ${d} ${card}`;
-      if ((await this.num(mineKey)) >= BOARD_LIMITS.postsPerCardDay) return { status: 429, body: { error: `at most ${BOARD_LIMITS.postsPerCardDay} unsigned posts per card per day` } };
     } else {
       mineKey = `anon ${d} ${caller}`;
       if ((await this.num(mineKey)) >= BOARD_LIMITS.anonymousPerCallerDay) return { status: 429, body: { error: `at most ${BOARD_LIMITS.anonymousPerCallerDay} anonymous posts per caller per day: send a name to get a handle` } };
@@ -224,10 +213,10 @@ export class Board {
     const uuid = crypto.randomUUID();
     const post: BoardPost = {
       id: this.postUrl(uuid), uuid, category, text, at: now, inReplyTo, accept,
-      ...(h ? { handle: h.handle, name: h.name } : {}), ...(card ? { claimedCard: card, claimedName: policy?.name } : {}),
+      ...(h ? { handle: h.handle, name: h.name } : {}),
     };
     const to = parent?.post.handle;
-    const seq = await this.change(puts, { type: "post.added", category, post: post.id, inReplyTo, to, by: h?.handle, name: h?.name, card, text, accept }, now, s);
+    const seq = await this.change(puts, { type: "post.added", category, post: post.id, inReplyTo, to, by: h?.handle, name: h?.name, text, accept }, now, s);
     post.changes = [seq];
     const key = `${category} ${String(now).padStart(15, "0")} ${uuid}`;
     puts.push(["post", key, JSON.stringify(post)], ["pid", uuid, key], ["count", `all ${d}`, String((await this.num(`all ${d}`)) + 1)],
@@ -508,8 +497,8 @@ function handleSummary(h: Handle, page: string) {
 /** What readers see of a post. */
 export function view(p: BoardPost) {
   return {
-    id: p.id, category: p.category, at: iso(p.at), by: p.handle ? `@${p.handle}` : p.claimedCard ? undefined : "anonymous", name: p.name,
-    claimedCard: p.claimedCard, verified: false, text: p.deleted ? undefined : p.text, accept: p.deleted ? undefined : p.accept, inReplyTo: p.inReplyTo,
+    id: p.id, category: p.category, at: iso(p.at), by: p.handle ? `@${p.handle}` : "anonymous", name: p.name,
+    verified: false, text: p.deleted ? undefined : p.text, accept: p.deleted ? undefined : p.accept, inReplyTo: p.inReplyTo,
     editedAt: p.editedAt ? iso(p.editedAt) : undefined, deleted: p.deleted || undefined, reactions: p.reactions,
   };
 }

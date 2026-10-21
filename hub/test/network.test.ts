@@ -111,10 +111,10 @@ test("join: needs the network line in the card; read-only member vs poster; vali
   assert.equal(ev.filter((t) => t === "agent.joined").length, 3);
 });
 
-test("unsigned posts: labelled as claims, kept apart, refused for posters and reject cards, capped, switchable", async () => {
+test("unsigned posts: labelled, kept apart, never 'as' a card (hub 0.7), capped, switchable", async () => {
   const s = await setup();
   await s.list([1]);
-  const ok = await s.call("POST", "/network/post", { category: "developer-tools", card: card(1), text: "hello from 1" });
+  const ok = await s.call("POST", "/network/post", { category: "developer-tools", name: "One", text: "hello from 1" });
   assert.equal(ok.status, 201);
   assert.equal(ok.json.verified, false);
   assert.equal((await s.call("POST", "/network/post", { category: "developer-tools", text: "anonymous" })).status, 201, "anonymous is allowed");
@@ -122,22 +122,20 @@ test("unsigned posts: labelled as claims, kept apart, refused for posters and re
   const es = parseFeed(xml).entries;
   assert.equal(es.length, 2);
   assert.ok(es.every((e) => e.type === "post.unverified" && /UNVERIFIED/.test(e.summary ?? "") && !e.sig), "never signed, always labelled");
-  assert.match(es.find((e) => e.content === "hello from 1")!.title!, /claimed by Agent 1/);
-  // A poster's identity posts signed only; so does a member card with unsigned: "reject".
-  s.w.docs.set(card(2), JSON.stringify(withRssa(a2aCard(2), { feed: "https://a2.example/feed.atom", groups: [NET] })));
-  await s.call("POST", "/network/join", { card: card(2) });
-  assert.equal((await s.call("POST", "/network/post", { category: "developer-tools", card: card(2), text: "fake" })).status, 403);
-  s.w.docs.set(card(3), JSON.stringify(withRssa(a2aCard(3), { groups: [NET], unsigned: "reject" })));
-  await s.call("POST", "/network/join", { card: card(3) });
-  assert.equal((await s.call("POST", "/network/post", { category: "developer-tools", card: card(3), text: "fake" })).status, 403);
+  assert.match(es.find((e) => e.content === "hello from 1")!.title!, /by @one-/);
+  // Posting "as" someone's card is gone, for every card, listed or not, and over A2A too.
+  const before = (await s.call("GET", "/network/changes?since=0")).json.latest;
+  for (const c of [card(1), "https://never.example/card.json"]) {
+    const r = await s.call("POST", "/network/post", { category: "developer-tools", card: c, text: "fake" });
+    assert.equal(r.status, 400);
+    assert.match(r.json.error, /no longer take a card/);
+  }
+  const a = await s.a2a([{ kind: "data", data: { skill: "post", category: "other", card: card(1), text: "fake" } }]);
+  assert.match(a.result.parts[0].text, /Not posted: posts no longer take a card/);
+  assert.equal((await s.call("GET", "/network/changes?since=0")).json.latest, before, "nothing was written");
   // Bad input.
   assert.equal((await s.call("POST", "/network/post", { category: "nope", text: "x" })).status, 400);
   assert.equal((await s.call("POST", "/network/post", { category: "other", text: "x".repeat(NET_LIMITS.postChars + 1) })).status, 413);
-  // Per-card daily cap (two already used by card 1? one; fill to the cap).
-  for (let i = 1; i < NET_LIMITS.postsPerCardDay; i++) assert.equal((await s.call("POST", "/network/post", { category: "other", card: card(1), text: `n${i}` })).status, 201);
-  assert.equal((await s.call("POST", "/network/post", { category: "other", card: card(1), text: "over" })).status, 429);
-  s.tick(86_400_000);
-  assert.equal((await s.call("POST", "/network/post", { category: "other", card: card(1), text: "next day" })).status, 201, "the cap is per day");
   // The kill switch.
   const off = await setup({ posts: false });
   assert.equal((await off.call("POST", "/network/post", { category: "other", text: "x" })).status, 503);
@@ -146,7 +144,7 @@ test("unsigned posts: labelled as claims, kept apart, refused for posters and re
 test("unsigned posts: retention per category", async () => {
   const s = await setup();
   for (let i = 0; i < NET_LIMITS.keepPerCategory + 5; i++) {
-    await s.call("POST", "/network/post", { category: "other", card: `https://p${i % 200}.example/card.json`, text: `p${i}` });
+    await s.hub.localNetwork().board.post({ category: "other", text: `p${i}` }, `caller ${i}`);
     s.tick(1000);
   }
   const all = (await s.hub.localNetwork().fetch(new Request(`${NET}/other/unverified.atom`), false)).status;
@@ -200,7 +198,7 @@ test("A2A: signed hub card; message/send with text and data parts; errors are JS
   assert.equal(found.result.parts[1].data.total, 2);
   const byCat = await s.a2a([{ kind: "data", data: { skill: "find_agents", category: "developer-tools" } }]);
   assert.equal(byCat.result.parts[1].data.total, 2);
-  const posted = await s.a2a([{ kind: "text", text: `post developer-tools as ${card(1)}: hi from A2A` }]);
+  const posted = await s.a2a([{ kind: "text", text: "post developer-tools: hi from A2A" }]);
   assert.equal(posted.result.parts[1].data.verified, false);
   const read = await s.a2a([{ kind: "text", text: "read developer-tools" }]);
   assert.equal(read.result.parts[1].data.unverified[0].text, "hi from A2A");

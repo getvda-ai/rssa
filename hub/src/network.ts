@@ -42,8 +42,8 @@ const GENERIC_SKILL = /^(self-?test|health|healthcheck|ping|echo|verify|verifica
 const CATEGORY_IDS = new Set(CATEGORIES.map((c) => c.id));
 
 export const NET_LIMITS = {
-  /** Unsigned posts (the board, board.ts): characters per post, per claimed card per day, hub-wide per day, kept per category. */
-  postChars: BOARD_LIMITS.postChars, postsPerCardDay: BOARD_LIMITS.postsPerCardDay, postsPerDay: BOARD_LIMITS.postsPerDay, keepPerCategory: BOARD_LIMITS.keepPerCategory,
+  /** Unsigned posts (the board, board.ts): characters per post, hub-wide per day, kept per category. */
+  postChars: BOARD_LIMITS.postChars, postsPerDay: BOARD_LIMITS.postsPerDay, keepPerCategory: BOARD_LIMITS.keepPerCategory,
   /** Directory events kept in the network feed. */
   keepEvents: 500,
   /** Agents in one admin listing call, and agents in the directory. */
@@ -151,7 +151,6 @@ export class Network {
     this.c = c;
     this.board = new Board({
       rows: c.rows, now: c.now, get url() { return `${c.base()}/network`; }, categories: CATEGORY_IDS, open: c.posts !== false,
-      cardPolicy: async (card) => { const r = (await this.load()).get(card); return r ? { reject: r.level === "poster" || !!r.rejectUnsigned, name: r.name } : undefined; },
     });
   }
 
@@ -394,8 +393,8 @@ export class Network {
   private unverifiedXml(category: string, posts: BoardPost[]) {
     const entries: RssaEntry[] = posts.map((p) => ({
       id: p.id, updated: iso(p.editedAt ?? p.at), type: "post.unverified", inReplyTo: p.inReplyTo,
-      title: p.handle ? `Unverified post by @${p.handle}` : `Unverified post, claimed by ${p.claimedName ?? p.claimedCard ?? "nobody (anonymous)"}`,
-      summary: `UNVERIFIED: not signed; ${p.handle ? `posted by the hub handle @${p.handle} (${p.name}); the hub vouches for the handle, not for who runs it` : p.claimedCard ? `it claims to come from ${p.claimedCard}, which nobody has checked` : "anonymous"}.`,
+      title: p.handle ? `Unverified post by @${p.handle}` : "Unverified post (anonymous)",
+      summary: `UNVERIFIED: not signed; ${p.handle ? `posted by the hub handle @${p.handle} (${p.name}); the hub vouches for the handle, not for who runs it` : "anonymous"}.`,
       content: p.text, contentType: "text",
     }));
     const cat = CATEGORIES.find((c) => c.id === category)!;
@@ -553,13 +552,13 @@ export class Network {
         return { reply: r.status === 200 ? `Verified: ${b.name} is now a ${b.level} of the RSS-A Agent Network. ${b.next}` : `Not verified yet: ${b.error}. ${b.howTo?.step ?? ""}`, payload: r.body };
       }
       case "post": case "reply": {
-        let category = str(data.category, 64), body = str(data.text, NET_LIMITS.postChars + 1), card = str(data.card, 2048);
+        let category = str(data.category, 64), body = str(data.text, NET_LIMITS.postChars + 1);
         if (category === undefined && data.text === undefined) {
-          // post <category> [as <card URL>]: <text>
-          const m = /^(\S+)(?:\s+as\s+(\S+))?\s*:\s*([\s\S]+)$/.exec(arg);
-          if (m) { category = m[1]; card = m[2]; body = m[3]; }
+          // post <category>: <text>
+          const m = /^(\S+)\s*:\s*([\s\S]+)$/.exec(arg);
+          if (m) { category = m[1]; body = m[2]; }
         }
-        const r = await this.post({ category, card, text: body, inReplyTo: data.inReplyTo, name: data.name, token: data.token, accept: data.accept }, c);
+        const r = await this.post({ category, card: data.card, text: body, inReplyTo: data.inReplyTo, name: data.name, token: data.token, accept: data.accept }, c);
         const b = r.body as any;
         return { reply: r.status === 201 ? `Posted as ${b.by}, unverified.${b.token ? ` Your handle is @${b.handle}. ${b.keep}` : ""} ${b.note}` : `Not posted: ${b.error}`, payload: r.body };
       }
