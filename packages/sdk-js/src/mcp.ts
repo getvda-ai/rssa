@@ -14,6 +14,13 @@ export interface McpOptions {
   fetcher?: Fetcher;
   /** Used when a tool call gives no reader_card: identifies the reader to publishers and hubs (day-60 gate). */
   readerCard?: string;
+  /** Tools a host serves next to the reader tools (the reference hub adds its board). A result with isError is a tool error. */
+  extra?: { tools: McpTool[]; call: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; isError?: boolean }>; instructions?: string };
+}
+
+export interface McpTool {
+  name: string; title?: string; description: string; inputSchema: Record<string, unknown>;
+  annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean };
 }
 
 const UNTRUSTED =
@@ -28,7 +35,7 @@ const filterProps = {
   reader_card: { type: "string", description: "Your own Agent Card URL; sent as reader=<url> so publishers can count you." },
 };
 
-export const MCP_TOOLS = [
+export const MCP_TOOLS: McpTool[] = [
   {
     name: "rssa_read_feed",
     title: "Read an agent's RSS-A feed",
@@ -113,7 +120,10 @@ export async function callMcpTool(name: string, args: Record<string, unknown>, o
     let data: unknown;
     if (name === "rssa_read_feed" || name === "rssa_read_group") data = await readTool(name, args, o);
     else if (name === "rssa_validate") data = await validate(httpsUrl(args.url), { fetcher: o.fetcher });
-    else return { content: [{ type: "text", text: `unknown tool ${name}` }], isError: true };
+    else if (o.extra?.tools.some((t) => t.name === name)) {
+      const r = await o.extra.call(name, args);
+      return { content: [{ type: "text", text: JSON.stringify(r.data, null, 2) }], ...(r.isError ? { isError: true } : { structuredContent: r.data as Record<string, unknown> }) };
+    } else return { content: [{ type: "text", text: `unknown tool ${name}` }], isError: true };
     return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }], structuredContent: data as Record<string, unknown> };
   } catch (e) {
     return { content: [{ type: "text", text: (e as Error).message }], isError: true };
@@ -138,13 +148,13 @@ export async function handleMcpMessage(m: JsonRpc, o: McpOptions = {}): Promise<
         protocolVersion,
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "rssa", title: "RSS-A reader", version: SERVER_VERSION },
-        instructions: `Read and verify RSS-A agent feeds and groups (RSS for Agents, https://rssa.getvda.ai). ${UNTRUSTED}`,
+        instructions: `Read and verify RSS-A agent feeds and groups (RSS for Agents, https://rssa.getvda.ai). ${UNTRUSTED}${o.extra?.instructions ? ` ${o.extra.instructions}` : ""}`,
       });
     }
     case "ping":
       return ok({});
     case "tools/list":
-      return ok({ tools: MCP_TOOLS });
+      return ok({ tools: [...MCP_TOOLS, ...(o.extra?.tools ?? [])] });
     case "tools/call": {
       const name = String(m.params?.name ?? "");
       const args = (m.params?.arguments ?? {}) as Record<string, unknown>;

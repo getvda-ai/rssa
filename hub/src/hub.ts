@@ -8,7 +8,8 @@
 import { handleMcpHttp, validate } from "../../packages/sdk-js/src/index.ts";
 import { Group, deliver, type DeliveryMessage, type LegacyGroup, type CardState, type Subscription } from "./group.ts";
 import { Directory, storeGroupStore, type Store } from "./store.ts";
-import { Network, type NetworkConfig } from "./network.ts";
+import { CATEGORIES, Network, VIA, type NetworkConfig } from "./network.ts";
+import { BOARD_INSTRUCTIONS, boardTools, callBoardTool, type BoardForward } from "./mcp-board.ts";
 
 export type { Store } from "./store.ts";
 export { memoryStore } from "./store.ts";
@@ -44,7 +45,7 @@ export interface HubConfig {
   /** The agent network (spec/network.md). Default: in-process over `store`. worker.ts supplies a Durable Object. */
   network?: (req: Request, admin: boolean) => Promise<Response>;
   /** In-process network options (Node): signing key, category groups, unsigned-post switch. */
-  networkOptions?: Pick<NetworkConfig, "key" | "groups" | "posts">;
+  networkOptions?: Pick<NetworkConfig, "key" | "groups" | "posts" | "websub">;
 }
 
 const j = (v: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -83,6 +84,10 @@ export class Hub {
       this.local.set(id, g);
     }
     return g;
+  }
+
+  private toNetwork(req: Request, admin: boolean): Promise<Response> {
+    return this.c.network ? this.c.network(req, admin) : this.localNetwork().fetch(req, admin);
   }
 
   /** The in-process Network (Node). */
@@ -193,17 +198,27 @@ export class Hub {
         return this.websub(new URLSearchParams(await req.text()));
       }
       if (req.method === "GET" && path === "/") {
-        return j({ name: "RSSA reference hub", version: "0.7.0", spec: "https://github.com/getvda-ai/rssa", groups: (await this.groupIds()).map((id) => `${url.origin}/g/${id}/`), websub: `${url.origin}/`, validate: `${url.origin}/validate?url=`, mcp: `${url.origin}/mcp`, network: `${url.origin}/network`, a2a: `${url.origin}/a2a`, card: `${url.origin}/.well-known/agent-card.json` });
+        return j({ name: "RSSA reference hub", version: "0.8.0", spec: "https://github.com/getvda-ai/rssa", groups: (await this.groupIds()).map((id) => `${url.origin}/g/${id}/`), websub: `${url.origin}/`, validate: `${url.origin}/validate?url=`, mcp: `${url.origin}/mcp`, network: `${url.origin}/network`, a2a: `${url.origin}/a2a`, card: `${url.origin}/.well-known/agent-card.json` });
       }
       if (path === "/.well-known/agent-card.json" || path === "/a2a" || path === "/network" || path.startsWith("/network/") || path === "/skill.md" || path === "/llms.txt") {
         const admin = this.authorised(req);
-        return this.c.network ? this.c.network(req, admin) : this.localNetwork().fetch(req, admin);
+        // x-rssa-via is set only by the hub itself (the board over MCP, below), so an outside caller's is dropped.
+        if (req.headers.has(VIA)) { const h = new Headers(req.headers); h.delete(VIA); req = new Request(req, { headers: h }); }
+        return this.toNetwork(req, admin);
       }
       if (path === "/mcp") {
         // MCP endpoint (a reference-hub extra, not part of the protocol): read, verify and validate
-        // feeds and groups from any MCP client. The hub's own URLs are answered in-process.
+        // feeds and groups from any MCP client, and use the network's board. The hub's own URLs are answered in-process.
         const fetcher = (u: string, i?: RequestInit) => (u.startsWith(`${url.origin}/`) ? this.handle(new Request(u, i)) : this.c.fetch(u, i));
-        return handleMcpHttp(req, { fetcher });
+        // Each board tool is one call to its /network route, as this caller (same IP and user agent, so the same limits).
+        const forward: BoardForward = (method, p, body, token) => {
+          const h: Record<string, string> = { [VIA]: "mcp", "content-type": "application/json" };
+          for (const k of ["cf-connecting-ip", "user-agent"]) { const v = req.headers.get(k); if (v) h[k] = v; }
+          if (token) h.authorization = `Bearer ${token}`;
+          return this.toNetwork(new Request(`${url.origin}${p}`, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) }), false);
+        };
+        const extra = { tools: boardTools(CATEGORIES.map((c) => c.id)), call: (n: string, a: Record<string, unknown>) => callBoardTool(n, a, forward), instructions: BOARD_INSTRUCTIONS };
+        return handleMcpHttp(req, { fetcher, extra });
       }
       if (req.method === "GET" && path === "/validate") {
         const target = url.searchParams.get("url");

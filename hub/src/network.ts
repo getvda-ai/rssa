@@ -57,6 +57,8 @@ export const CONTACT = "mike@getvda.ai";
 const DAY = 86_400_000;
 /** Members' cards are re-checked this often (membership only; the hub never probes agents' uptime). */
 export const RECHECK_MS = 7 * DAY;
+/** Topics kept for the next WebSub round (the board, and the feeds of the agents who posted in the minute). */
+const WEBSUB_TOPICS = 20;
 
 export type Level = "listed" | "member" | "poster";
 export interface AgentRow {
@@ -97,6 +99,10 @@ export interface NetworkConfig {
   key?: RssaKey;
   /** false turns unsigned posts off (kill switch). */
   posts?: boolean;
+  /** Public WebSub hubs told when the board's feeds change (at most once a minute), and advertised in them. */
+  websub?: string[];
+  /** Runs work after the response (a Worker's waitUntil); without it the work is awaited. */
+  defer?: (p: Promise<unknown>) => void;
 }
 
 const j = (v: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -171,6 +177,9 @@ export function eventSummary(type: string, r: AgentRow): string {
 
 const caller = (req: Request) => ({ ip: req.headers.get("cf-connecting-ip") ?? undefined, ua: req.headers.get("user-agent") ?? undefined });
 type Caller = { ip?: string; ua?: string };
+/** Set by the hub on the board calls it makes for its MCP tools (an outside caller's is dropped), so stats tell them apart. */
+export const VIA = "x-rssa-via";
+const via = (req: Request) => (req.headers.get(VIA) === "mcp" ? "mcp" : "http");
 const bearer = (req: Request) => /^Bearer\s+(\S+)$/i.exec(req.headers.get("authorization") ?? "")?.[1];
 
 export class Network {
@@ -461,6 +470,9 @@ export class Network {
   }
 
   /** Re-checks the members whose card was checked longest ago. Membership only: no uptime probing. */
+  /** The hourly flush (no change of its own): board topics that changed inside a ping's minute are announced now. */
+  flushWebSub(): Promise<void> { return this.announce(); }
+
   recheck(limit = 20): Promise<number> {
     return this.serial(async () => {
       const now = this.c.now();
@@ -495,11 +507,52 @@ export class Network {
     return short(`${salt} ${c?.ip ?? ""} ${c?.ua ?? ""}`);
   }
 
-  post(p: { token?: unknown; name?: unknown; card?: unknown; category?: unknown; text?: unknown; inReplyTo?: unknown; accept?: unknown }, c?: Caller) {
-    return this.serial(async () => this.board.post(p, await this.callerId(c)));
+  async post(p: { token?: unknown; name?: unknown; card?: unknown; category?: unknown; text?: unknown; inReplyTo?: unknown; accept?: unknown }, c?: Caller) {
+    const r = await this.serial(async () => this.board.post(p, await this.callerId(c)));
+    if (r.status < 300) await this.announce({ handle: typeof r.body?.by === "string" && r.body.by.startsWith("@") ? r.body.by.slice(1) : undefined });
+    return r;
   }
-  edit(p: { token?: unknown; id?: unknown; text?: unknown }) { return this.serial(() => this.board.edit(p)); }
-  remove(p: { token?: unknown; id?: unknown; reason?: unknown }, operator = false) { return this.serial(() => this.board.remove(p, operator)); }
+  async edit(p: { token?: unknown; id?: unknown; text?: unknown }) {
+    const r = await this.serial(() => this.board.edit(p));
+    if (r.status < 300) await this.announce({});
+    return r;
+  }
+  async remove(p: { token?: unknown; id?: unknown; reason?: unknown }, operator = false) {
+    const r = await this.serial(() => this.board.remove(p, operator));
+    if (r.status < 300) await this.announce({});
+    return r;
+  }
+
+  /**
+   * The board on RSS, pushed: tells the public WebSub hubs that board.atom (and the poster's own feed, and the ✓
+   * feed when the poster is linked) changed, so feed readers get new posts in seconds. At most one round of pings a
+   * minute, whatever the traffic; topics changed inside the minute wait for the next post or the hourly flush.
+   * A ping says only "this URL changed": it reaches no one who did not subscribe.
+   */
+  async announce(changed?: { handle?: string }): Promise<void> {
+    const hubs = this.c.websub ?? [];
+    if (!hubs.length) return;
+    const work = this.serial(async () => {
+      const pending = new Set<string>(JSON.parse((await this.c.rows.get("count", "websub pending")) ?? "[]"));
+      if (changed) pending.add(`${this.url}/board.atom`);
+      const handle = changed?.handle;
+      if (handle) {
+        pending.add(`${this.url}/@${handle}.atom`);
+        if ((await this.board.links()).has(handle)) pending.add(`${this.url}/board.atom?verified=1`);
+      }
+      if (!pending.size) return [];
+      const now = this.c.now();
+      const last = Number((await this.c.rows.get("count", "websub at")) ?? 0);
+      const topics = [...pending].slice(-WEBSUB_TOPICS);
+      if (now - last < 60_000) { await this.c.rows.write([["count", "websub pending", JSON.stringify(topics)]], []); return []; }
+      await this.c.rows.write([["count", "websub at", String(now)], ["count", "websub pending", "[]"]], []);
+      return topics;
+    });
+    const send = work.then((topics) => Promise.all(hubs.flatMap((hub) => topics.map((t) =>
+      this.c.fetch(hub, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ "hub.mode": "publish", "hub.url": t }).toString() })
+        .then((res) => res.body?.cancel()).catch(() => undefined))))).catch(() => undefined);
+    if (this.c.defer) this.c.defer(send); else await send;
+  }
   react(p: { token?: unknown; id?: unknown; reaction?: unknown }) { return this.serial(() => this.board.react(p)); }
   profile(p: any, c?: Caller) { return this.serial(async () => this.board.setProfile(p, await this.callerId(c))); }
 
@@ -786,13 +839,13 @@ export class Network {
       }
       if (req.method === "GET" && path === "/network/stats.json") return j(await this.stats());
       if (req.method === "GET" && (path === "/network/skill.md" || path === "/skill.md" || path === "/llms.txt")) {
-        try { await this.count(`http:${path.split("/").pop()}`, caller(req)); } catch { /* counting never fails a call */ }
+        try { await this.count(`${via(req)}:${path.split("/").pop()}`, caller(req)); } catch { /* counting never fails a call */ }
         const md = path === "/llms.txt" ? llmsTxt(this.c.base()) : skillMd(this.c.base(), [...CATEGORY_IDS]);
         return new Response(md, { headers: { "content-type": "text/markdown; charset=utf-8", "access-control-allow-origin": "*", "cache-control": "public, max-age=300" } });
       }
       if (req.method === "GET" && path === "/network/changes") {
         const s = url.searchParams;
-        try { await this.count("http:changes", caller(req)); } catch { /* counting never fails a call */ }
+        try { await this.count(`${via(req)}:changes`, caller(req)); } catch { /* counting never fails a call */ }
         const r = await this.changesFor({ since: s.get("since"), limit: s.get("limit"), category: s.get("category") ?? undefined }, bearer(req));
         return j(r.body, r.status);
       }
@@ -803,7 +856,7 @@ export class Network {
         return t ? j(t) : j({ error: "no such post" }, 404);
       }
       if (req.method === "GET" && path === "/network/board") {
-        try { await this.count("http:board", caller(req)); } catch { /* counting never fails a call */ }
+        try { await this.count(`${via(req)}:board`, caller(req)); } catch { /* counting never fails a call */ }
         const hs = await this.board.handles(100);
         const links = await this.board.links();
         const ticked = url.searchParams.get("verified") === "1";
@@ -813,23 +866,23 @@ export class Network {
       if (req.method === "GET" && path === "/network/handles.json") return j({ network: this.url, note: "Agents on the board, most recently active first. Profiles are in their own words, unverified. `operator`: handles run by getvda.ai (the hub's operator), never counted as adoption; `others`: everyone else.", ...(await this.board.handles(200)) });
       // The board on RSS: the whole board (or ✓ only), and one agent's posts (what an owner subscribes to).
       if (req.method === "GET" && path === "/network/board.atom") {
-        try { await this.count("http:board.atom", caller(req)); } catch { /* counting never fails a call */ }
+        try { await this.count(`${via(req)}:board.atom`, caller(req)); } catch { /* counting never fails a call */ }
         const links = await this.board.links();
         const ticked = url.searchParams.get("verified") === "1";
         const posts = (await this.board.recent(ticked ? 300 : 100)).filter((p) => !ticked || (p.handle && links.has(p.handle))).slice(0, 100);
-        return atom(atomXml({ feedUrl: `${this.url}/board.atom${ticked ? "?verified=1" : ""}`, title: `RSS-A Agent Network: the board${ticked ? " (✓ only)" : ""}`, author: "AI agents on the RSS-A Agent Network (unverified)" }, this.boardEntries(posts, links)));
+        return atom(atomXml({ feedUrl: `${this.url}/board.atom${ticked ? "?verified=1" : ""}`, title: `RSS-A Agent Network: the board${ticked ? " (✓ only)" : ""}`, author: "AI agents on the RSS-A Agent Network (unverified)", hubUrl: this.c.websub?.[0] }, this.boardEntries(posts, links)));
       }
       const ha = /^\/network\/@([a-z0-9-]{1,40})\.atom$/.exec(path);
       if (req.method === "GET" && ha) {
-        try { await this.count("http:profile.atom", caller(req)); } catch { /* counting never fails a call */ }
+        try { await this.count(`${via(req)}:profile.atom`, caller(req)); } catch { /* counting never fails a call */ }
         const v = await this.board.handleView(ha[1], 50);
         if (!v) return j({ error: "no such handle" }, 404);
         const raw = (await Promise.all(v.recent.map((p) => this.board.getPost(p.id)))).flatMap((x) => (x ? [x.post] : []));
-        return atom(atomXml({ feedUrl: `${this.url}/@${ha[1]}.atom`, title: `${v.name} (${v.handle}) on the RSS-A Agent Network`, author: `${v.name} (unverified)` }, this.boardEntries(raw, await this.board.links())));
+        return atom(atomXml({ feedUrl: `${this.url}/@${ha[1]}.atom`, title: `${v.name} (${v.handle}) on the RSS-A Agent Network`, author: `${v.name} (unverified)`, hubUrl: this.c.websub?.[0] }, this.boardEntries(raw, await this.board.links())));
       }
       const hp = /^\/network\/@([a-z0-9-]{1,40})(\.json)?$/.exec(path);
       if (req.method === "GET" && hp) {
-        try { await this.count("http:profile", caller(req)); } catch { /* counting never fails a call */ }
+        try { await this.count(`${via(req)}:profile`, caller(req)); } catch { /* counting never fails a call */ }
         const v = await this.board.handleView(hp[1]);
         if (hp[2] || !wantsHtml(req)) return v ? j(v) : j({ error: "no such handle" }, 404);
         return v ? html(profilePage(this.url, v)) : html("<!doctype html><title>Not found</title><p>No such handle.</p>", 404);
@@ -840,7 +893,7 @@ export class Network {
         const form = /^application\/x-www-form-urlencoded/.test(req.headers.get("content-type") ?? "");
         const b: any = form ? Object.fromEntries(new URLSearchParams(await req.text())) : await req.json().catch(() => ({}));
         const r = await this.report(b ?? {}, caller(req));
-        try { await this.count("http:report", caller(req)); } catch { /* counting never fails a call */ }
+        try { await this.count(`${via(req)}:report`, caller(req)); } catch { /* counting never fails a call */ }
         return form ? html(reportedPage(this.url, r.status === 202, r.body.note ?? r.body.error), r.status) : j(r.body, r.status);
       }
       if (req.method === "GET" && path === "/network") return j(this.networkDoc());
@@ -865,7 +918,7 @@ export class Network {
         const op = path.slice("/network/".length);
         const r = op === "join" ? await this.join(b.card, b.token) : op === "optout" ? await this.optout(b.card) : op === "post" ? await this.post(b, caller(req))
           : op === "edit" ? await this.edit(b) : op === "delete" ? await this.remove(b) : op === "profile" ? await this.profile(b, caller(req)) : await this.react(b);
-        try { await this.count(`http:${path.slice("/network/".length)}`, caller(req)); } catch { /* counting never fails a call */ }
+        try { await this.count(`${via(req)}:${path.slice("/network/".length)}`, caller(req)); } catch { /* counting never fails a call */ }
         return j(r.body, r.status);
       }
       if (req.method === "POST" && path.startsWith("/network/admin/")) {

@@ -29,6 +29,8 @@ export interface Env {
   NETWORK_GROUPS?: string;
   /** "off" switches unsigned posts off. */
   NETWORK_POSTS?: string;
+  /** Comma-separated public WebSub hubs pinged when the board changes (empty: no pings). */
+  BOARD_WEBSUB?: string;
 }
 
 const POLL_MS = 5 * 60_000;
@@ -161,12 +163,13 @@ export class NetworkDO extends DurableObject<Env> {
       if (this.env.HUB_SIGNING_KEY) key = await keyFromJwk(this.env.HUB_SIGNING_KEY);
       let groups: Record<string, string> | undefined;
       try { groups = this.env.NETWORK_GROUPS ? JSON.parse(this.env.NETWORK_GROUPS) : undefined; } catch { groups = undefined; }
-      return new Network({ rows: this.rows, fetch: timedFetch, now: () => Date.now(), base: () => base(this.env), key, groups, posts: this.env.NETWORK_POSTS !== "off" });
+      return new Network({ rows: this.rows, fetch: timedFetch, now: () => Date.now(), base: () => base(this.env), key, groups, posts: this.env.NETWORK_POSTS !== "off",
+        websub: (this.env.BOARD_WEBSUB ?? "").split(",").map((x) => x.trim()).filter(Boolean), defer: (p) => this.ctx.waitUntil(p) });
     })());
   }
 
   async handle(req: Request, admin: boolean): Promise<Response> { return (await this.network()).fetch(req, admin); }
-  async recheck(limit: number) { return (await this.network()).recheck(limit); }
+  async recheck(limit: number) { const n = await this.network(); await n.flushWebSub(); return n.recheck(limit); }
 }
 
 const networkStub = (env: Env) => env.NETWORK.get(env.NETWORK.idFromName("network"));

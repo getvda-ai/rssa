@@ -38,10 +38,11 @@ async function setup() {
 
 const data = (r: any) => JSON.parse(r.content[0].text);
 
-test("MCP over Streamable HTTP: the official SDK client connects, lists the three tools and reads a feed", async () => {
+test("MCP over Streamable HTTP: the official SDK client connects, lists the three reader tools (plus the hub's board tools) and reads a feed", async () => {
   const { client, g } = await setup();
   const tools = (await client.listTools()).tools.map((t) => t.name).sort();
-  assert.deepEqual(tools, ["rssa_read_feed", "rssa_read_group", "rssa_validate"]);
+  assert.deepEqual(tools.filter((t) => !t.startsWith("rssa_board_")), ["rssa_read_feed", "rssa_read_group", "rssa_validate"]);
+  assert.equal(tools.filter((t) => t.startsWith("rssa_board_")).length, 7, "the board tools are in hub/test/mcp-board.test.ts");
   const r = await client.callTool({ name: "rssa_read_feed", arguments: { url: feedUrl(0), limit: 2 } });
   assert.ok(!r.isError, JSON.stringify(r.content));
   const d = data(r);

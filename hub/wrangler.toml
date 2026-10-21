@@ -58,6 +58,8 @@ binding = "RSSA"
 id = "f02d0acfe93a4eacb7c94c8cd6752ff8"
 
 [vars]
+# The board on RSS, pushed: public WebSub hubs told (at most once a minute) that board.atom changed.
+BOARD_WEBSUB = "https://pubsubhubbub.appspot.com/"
 HUB_URL = "https://hub.rssa.getvda.ai"
 GROUPS = "https://storage.googleapis.com/c2md-493808-gosce-rssa/groups/fleet-ops/policy.json"
 # The agent network's category groups (spec/network.md §5): signed, open, for posters.
