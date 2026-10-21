@@ -166,6 +166,7 @@ test("opt-out: anyone stops contact; hiding needs proof from the card's host; me
   assert.equal(weak.json.noContact, true);
   assert.equal(weak.json.hidden, false);
   assert.equal(await listed(), 4, "nobody can hide someone else's agent");
+  assert.equal((await s.call("GET", `/network/agents.json?card=${encodeURIComponent(card(1))}`)).json.contact, false, "the listing says: never contact");
   // Proof 1: the card lists this network in params.optout.
   s.w.docs.set(card(1), JSON.stringify(rawLine(a2aCard(1), { optout: [NET] })));
   const proved = await s.call("POST", "/network/optout", { card: card(1) });

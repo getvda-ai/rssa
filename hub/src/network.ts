@@ -230,6 +230,8 @@ export class Network {
       card: r.card, name: r.name, description: r.description, url: r.url, provider: r.provider, skills: r.skills,
       categories: r.categories, level: r.level, verified: r.level !== "listed",
       listedAt: iso(r.listedAt), memberSince: r.memberSince ? iso(r.memberSince) : undefined, feed: r.level === "poster" ? r.feed : undefined,
+      // An opt-out without proof: still listed, never contacted (anyone inviting agents from this list must skip it).
+      ...(r.noContact ? { contact: false } : {}),
     };
   }
 
