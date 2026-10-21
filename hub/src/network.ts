@@ -76,6 +76,8 @@ export interface AgentRow {
   rejectUnsigned?: boolean;
   /** Hidden by an opt-out (reversible by the operator). */
   hidden?: boolean;
+  /** Someone asked that this agent is never contacted: honoured for anyone who asks, proof or not. */
+  noContact?: boolean;
 }
 
 export interface NetworkConfig {
@@ -100,6 +102,28 @@ const iso = (t: number) => new Date(t).toISOString().replace(/\.\d{3}Z$/, "Z");
 const day = (t: number) => iso(t).slice(0, 10);
 const isHttps = (u: unknown): u is string => typeof u === "string" && /^https:\/\/\S+$/.test(u) && u.length <= 2048;
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : undefined);
+/** The most the hub reads of a card (or an opt-out file) it fetches. */
+const FETCH_MAX = 256_000;
+/** Hosts the hub never fetches from: IP literals and local names. (A Worker cannot reach them anyway; a Node hub could.) */
+const localHost = (h: string) => /^(localhost|.+\.(local|localhost|internal|lan|home\.arpa))$/i.test(h) || /^\d+(\.\d+){3}$/.test(h) || h.startsWith("[");
+/** A body read up to `max` bytes; undefined when it is larger. */
+async function capped(r: Response, max: number): Promise<string | undefined> {
+  if (!r.body) return "";
+  const reader = r.body.getReader();
+  const parts: Uint8Array[] = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > max) { await reader.cancel().catch(() => undefined); return undefined; }
+    parts.push(value);
+  }
+  const all = new Uint8Array(n);
+  let o = 0;
+  for (const p of parts) { all.set(p, o); o += p.byteLength; }
+  return new TextDecoder().decode(all);
+}
 async function short(s: string) { return hex(await sha256(new TextEncoder().encode(s))).slice(0, 16); }
 
 /** Up to three categories from what the card says about itself. Deterministic. */
@@ -234,18 +258,46 @@ export class Network {
 
   // ---------------- join, optout, recheck ----------------
 
+  /**
+   * GETs a URL that someone else named (join, opt-out, re-checks): public https hosts only, redirects followed only
+   * within the same origin (at most 3), at most 256 kB read, HTML refused. The timeout is the injected fetch's.
+   */
+  private async fetchSafe(url: string, accept: string): Promise<{ status?: number; text?: string; error?: string }> {
+    let at: URL;
+    try { at = new URL(url); } catch { return { error: "not a URL" }; }
+    const origin = at.origin;
+    for (let hop = 0; hop <= 3; hop++) {
+      if (at.protocol !== "https:" || localHost(at.hostname)) return { error: "the hub fetches only public https hosts" };
+      let r: Response;
+      try { r = await this.c.fetch(at.href, { redirect: "manual", headers: { "user-agent": USER_AGENT, accept } }); } catch (e) { return { error: (e as Error).message }; }
+      if (r.status >= 300 && r.status < 400) {
+        const loc = r.headers.get("location");
+        if (!loc) return { status: r.status, error: `HTTP ${r.status} without a location` };
+        const next = new URL(loc, at);
+        if (next.origin !== origin) return { status: r.status, error: `it redirects to another host (${next.host}): use the final URL` };
+        at = next;
+        continue;
+      }
+      if (!r.ok) { await r.body?.cancel().catch(() => undefined); return { status: r.status }; }
+      if (Number(r.headers.get("content-length") ?? 0) > FETCH_MAX) return { status: r.status, error: "it is larger than 256 kB" };
+      if (/^text\/html/i.test(r.headers.get("content-type") ?? "")) return { status: r.status, error: "it is served as HTML, not JSON" };
+      const text = await capped(r, FETCH_MAX);
+      return text === undefined ? { status: r.status, error: "it is larger than 256 kB" } : { status: r.status, text };
+    }
+    return { error: "too many redirects" };
+  }
+
   /** Fetches a card from its own URL and classifies it against this network. */
-  private async check(cardUrl: string): Promise<{ body?: any; level?: Level; feed?: string; rejectUnsigned?: boolean; error?: string }> {
+  private async check(cardUrl: string): Promise<{ body?: any; level?: Level; feed?: string; rejectUnsigned?: boolean; handle?: string; error?: string }> {
     let body: any;
     // The hub's own card is read in-process: a Worker cannot fetch its own hostname (Cloudflare answers 522).
     if (cardUrl === this.cardUrl()) body = await this.agentCard();
-    else try {
-      const r = await this.c.fetch(cardUrl, { headers: { "user-agent": USER_AGENT, accept: "application/json" } });
-      if (!r.ok) return { error: `card GET returned ${r.status}` };
-      const t = await r.text();
-      if (t.length > 256_000) return { error: "card is larger than 256 kB" };
-      body = JSON.parse(t);
-    } catch (e) { return { error: `cannot fetch card: ${(e as Error).message}` }; }
+    else {
+      const f = await this.fetchSafe(cardUrl, "application/json");
+      if (f.error) return { error: `cannot fetch card: ${f.error}` };
+      if (f.text === undefined) return { error: `card GET returned ${f.status}` };
+      try { body = JSON.parse(f.text); } catch { return { error: "the card is not JSON" }; }
+    }
     const ext = findRssa(body);
     const groups: string[] = Array.isArray(ext?.params?.groups) ? ext!.params.groups! : [];
     if (!groups.includes(this.url)) return { body, error: `the card's RSSA extension does not list ${this.url} in params.groups` };
@@ -295,17 +347,51 @@ export class Network {
     return "You are a verified read-only member. To post signed entries, publish a feed and add params.feed and params.keys (python -m rssa keygen, then add-to-card --feed).";
   }
 
+  /**
+   * Opt-out (spec/network.md §4). Anyone may ask that an agent is never contacted, and that is honoured at once.
+   * Hiding a listing needs proof from the card's own host, so nobody can hide someone else's agent: the card is
+   * gone (404 or 410), or the card's RSSA extension lists this network in `params.optout`, or
+   * `<card origin>/.well-known/rssa-optout.txt` has the network URL on a line of its own.
+   */
   optout(cardUrl: string): Promise<{ status: number; body: unknown }> {
     if (!isHttps(cardUrl)) return Promise.resolve({ status: 400, body: { error: "card must be an https URL" } });
     return this.serial(async () => {
       const m = await this.load();
       const r = m.get(cardUrl);
       if (r && r.level !== "listed") return { status: 409, body: { error: "this card is a verified member: remove the network from its params.groups to leave; the hub drops it at the next check" } };
+      const proof = await this.optoutProof(cardUrl);
+      const now = this.c.now();
+      if (!proof) {
+        if (r) await this.save([{ ...r, noContact: true, updatedAt: now }]);
+        else await this.c.rows.write([["nocontact", cardUrl, String(now)]], []);
+        return {
+          status: 202,
+          body: {
+            card: cardUrl, hidden: false, noContact: true,
+            note: "This agent will not be contacted by this network. To hide its listing too, prove you run it, then call optout again: add the network URL to params.optout in the card's RSSA extension, or serve it on a line of its own at /.well-known/rssa-optout.txt on the card's host. Or write to the contact point in the terms.",
+            optoutLine: this.url, terms: `${this.url}/terms`,
+          },
+        };
+      }
       // Unknown cards are recorded too, so they are never listed or contacted later.
-      const row: AgentRow = r ? { ...r, hidden: true, updatedAt: this.c.now() } : { card: cardUrl, name: cardUrl, skills: [], categories: [], level: "listed", listedAt: this.c.now(), updatedAt: this.c.now(), hidden: true, source: "optout" };
+      const row: AgentRow = r ? { ...r, hidden: true, noContact: true, updatedAt: now } : { card: cardUrl, name: cardUrl, skills: [], categories: [], level: "listed", listedAt: now, updatedAt: now, hidden: true, noContact: true, source: "optout" };
       await this.save([row]);
-      return { status: 200, body: { card: cardUrl, hidden: true, note: "Hidden from the directory and excluded from invitations. Ask the operator to restore it." } };
+      return { status: 200, body: { card: cardUrl, hidden: true, noContact: true, proof, note: "Hidden from the directory and never contacted. Ask the operator to restore it." } };
     });
+  }
+
+  private async optoutProof(cardUrl: string): Promise<string | undefined> {
+    const c = await this.fetchSafe(cardUrl, "application/json");
+    if (c.status === 404 || c.status === 410) return `the card is gone (HTTP ${c.status})`;
+    if (c.text) {
+      try {
+        const out = (findRssa(JSON.parse(c.text))?.params as any)?.optout;
+        if (Array.isArray(out) && out.includes(this.url)) return "the card's RSSA extension lists this network in params.optout";
+      } catch { /* not JSON: no proof from the card */ }
+    }
+    const f = await this.fetchSafe(`${new URL(cardUrl).origin}/.well-known/rssa-optout.txt`, "text/plain");
+    if (f.text && f.text.split(/\r?\n/).some((l) => l.trim() === this.url)) return "the card's host lists this network in /.well-known/rssa-optout.txt";
+    return undefined;
   }
 
   /** Operator only: undo an opt-out the real operator did not make. */
@@ -583,7 +669,8 @@ export class Network {
       }
       case "optout": {
         const r = await this.optout(str(data.card, 2048) ?? arg);
-        return { reply: r.status === 200 ? "Done: hidden from the directory and excluded from invitations." : `Not done: ${(r.body as any).error}`, payload: r.body };
+        const ob = r.body as any;
+        return { reply: r.status === 200 ? "Done: hidden from the directory and never contacted." : r.status === 202 ? `Noted: never contacted. ${ob.note}` : `Not done: ${ob.error}`, payload: r.body };
       }
       default:
         return {

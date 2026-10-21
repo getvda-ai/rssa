@@ -20,16 +20,18 @@ function web() {
   };
   return { docs, fetcher };
 }
+/** A card with an RSSA extension written by hand (params the SDK's withRssa does not know, as an owner would type them). */
+const rawLine = (c: Record<string, unknown>, params: Record<string, unknown>) => ({ ...c, capabilities: { extensions: [{ uri: "https://rssa.getvda.ai/ext/v0.1", required: false, params }] } });
 const a2aCard = (n: number, extra: Record<string, unknown> = {}) => ({
   name: `Agent ${n}`, description: "Generates docker compose stacks for redis and postgres", url: `https://a${n}.example/a2a/`,
   provider: { organization: `Org ${n}` }, skills: [{ id: "compose", name: "Compose", tags: ["docker"] }], ...extra,
 });
 
-async function setup(opts: { posts?: boolean } = {}) {
+async function setup(opts: { posts?: boolean; fetch?: (u: string) => Promise<Response> } = {}) {
   const w = web();
   let t = Date.parse("2026-10-20T10:00:00Z");
   const key = await keyFromSeed(seed(1));
-  const hub = new Hub({ store: memoryStore(), fetch: w.fetcher, now: () => t, adminToken: "x", baseUrl: BASE, networkOptions: { key, groups: { "developer-tools": "https://groups.test/developer-tools/policy.json" }, posts: opts.posts } });
+  const hub = new Hub({ store: memoryStore(), fetch: opts.fetch ?? w.fetcher, now: () => t, adminToken: "x", baseUrl: BASE, networkOptions: { key, groups: { "developer-tools": "https://groups.test/developer-tools/policy.json" }, posts: opts.posts } });
   const call = async (method: string, path: string, body?: unknown, admin = false) => {
     const r = await hub.handle(new Request(`${BASE}${path}`, { method, body: body === undefined ? undefined : JSON.stringify(body), headers: admin ? { authorization: "Bearer x" } : {} }));
     const text = await r.text();
@@ -153,19 +155,70 @@ test("unsigned posts: retention per category", async () => {
   assert.equal(rows.length, NET_LIMITS.keepPerCategory, "the oldest posts beyond the limit are deleted");
 });
 
-test("opt-out hides and stops contact; members cannot be hidden by others; the operator can restore", async () => {
+test("opt-out: anyone stops contact; hiding needs proof from the card's host; members cannot be hidden by others; the operator can restore", async () => {
   const s = await setup();
-  await s.list([1, 2]);
-  assert.equal((await s.call("POST", "/network/optout", { card: card(1) })).status, 200);
-  assert.equal((await s.call("GET", "/network/agents.json")).json.listed, 1);
+  await s.list([1, 2, 4, 5]);
+  const listed = async () => (await s.call("GET", "/network/agents.json")).json.listed;
+  // A live card, and someone who cannot prove they run it: never contacted, still listed.
+  s.w.docs.set(card(1), JSON.stringify(a2aCard(1)));
+  const weak = await s.call("POST", "/network/optout", { card: card(1) });
+  assert.equal(weak.status, 202);
+  assert.equal(weak.json.noContact, true);
+  assert.equal(weak.json.hidden, false);
+  assert.equal(await listed(), 4, "nobody can hide someone else's agent");
+  // Proof 1: the card lists this network in params.optout.
+  s.w.docs.set(card(1), JSON.stringify(rawLine(a2aCard(1), { optout: [NET] })));
+  const proved = await s.call("POST", "/network/optout", { card: card(1) });
+  assert.equal(proved.status, 200);
+  assert.match(proved.json.proof, /params\.optout/);
+  assert.equal(await listed(), 3);
   await s.list([1]);
-  assert.equal((await s.call("GET", "/network/agents.json")).json.listed, 1, "re-listing does not undo an opt-out");
-  assert.equal((await s.call("POST", "/network/optout", { card: "https://never.example/card.json" })).status, 200, "unknown cards are recorded so they are never listed");
+  assert.equal(await listed(), 3, "re-listing does not undo an opt-out");
+  // Proof 2: a file on the card's host.
+  s.w.docs.set(card(4), JSON.stringify(a2aCard(4)));
+  s.w.docs.set("https://a4.example/.well-known/rssa-optout.txt", `# no network contact\n${NET}\n`);
+  assert.equal((await s.call("POST", "/network/optout", { card: card(4) })).status, 200);
+  // Another network's URL in the file proves nothing for this one.
+  s.w.docs.set(card(5), JSON.stringify(a2aCard(5)));
+  s.w.docs.set("https://a5.example/.well-known/rssa-optout.txt", "https://other.example/network\n");
+  assert.equal((await s.call("POST", "/network/optout", { card: card(5) })).status, 202);
+  // Proof 3: the card is gone. Unknown cards are recorded so they are never listed.
+  assert.equal((await s.call("POST", "/network/optout", { card: "https://never.example/card.json" })).status, 200);
+  assert.equal(await listed(), 2);
   s.w.docs.set(card(2), JSON.stringify(withRssa(a2aCard(2), { groups: [NET] })));
   await s.call("POST", "/network/join", { card: card(2) });
   assert.equal((await s.call("POST", "/network/optout", { card: card(2) })).status, 409, "a member leaves by editing its own card");
   assert.equal((await s.call("POST", "/network/admin/restore", { card: card(1) }, true)).json.restored, true);
-  assert.equal((await s.call("GET", "/network/agents.json")).json.listed, 2);
+  assert.equal(await listed(), 3);
+});
+
+test("safe fetches: the hub reads only public https hosts, follows redirects only within the card's origin, refuses HTML and big bodies", async () => {
+  const s = await setup();
+  const line = JSON.stringify(withRssa(a2aCard(7), { groups: [NET] }));
+  const seen: string[] = [];
+  const real = s.w.fetcher;
+  s.w.fetcher = undefined as any;
+  const fake = async (u: string) => {
+    seen.push(String(u));
+    if (u === "https://r1.example/card") return new Response(null, { status: 302, headers: { location: "/.well-known/agent-card.json" } });
+    if (u === "https://r1.example/.well-known/agent-card.json") return new Response(line, { headers: { "content-type": "application/json" } });
+    if (u === "https://r2.example/card") return new Response(null, { status: 301, headers: { location: "https://elsewhere.example/card" } });
+    if (u === "https://html.example/card") return new Response("<html>login</html>", { headers: { "content-type": "text/html" } });
+    if (u === "https://big.example/card") return new Response(new ReadableStream({ start(c) { for (let k = 0; k < 40; k++) c.enqueue(new Uint8Array(10_000)); c.close(); } }));
+    return real(u);
+  };
+  const t = await setup({ fetch: fake });
+  assert.equal((await t.call("POST", "/network/join", { card: "https://r1.example/card" })).json.level, "member", "a same-origin redirect is followed");
+  const cross = await t.call("POST", "/network/join", { card: "https://r2.example/card" });
+  assert.equal(cross.status, 422);
+  assert.match(cross.json.error, /redirects to another host/);
+  assert.ok(!seen.includes("https://elsewhere.example/card"), "never fetched");
+  assert.match((await t.call("POST", "/network/join", { card: "https://html.example/card" })).json.error, /HTML/);
+  assert.match((await t.call("POST", "/network/join", { card: "https://big.example/card" })).json.error, /256 kB/);
+  for (const bad of ["https://127.0.0.1/card", "https://localhost/card", "https://printer.local/card", "https://[::1]/card"]) {
+    assert.match((await t.call("POST", "/network/join", { card: bad })).json.error, /public https hosts/, bad);
+  }
+  assert.ok(!seen.some((u) => /127\.0\.0\.1|localhost|\.local\/|::1/.test(u)), "local hosts are never fetched");
 });
 
 test("recheck: a member whose card drops the line goes back to listed; an unreachable card keeps its verdict", async () => {
