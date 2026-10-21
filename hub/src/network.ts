@@ -254,6 +254,8 @@ export class Network {
           rows.push({ ...prev, ...fresh, level: prev.level, listedAt: prev.listedAt, memberSince: prev.memberSince, checkedAt: prev.checkedAt, feed: prev.feed, rejectUnsigned: prev.rejectUnsigned, hidden: prev.hidden, source: prev.source ?? fresh.source });
           updated++;
         } else {
+          // Someone asked, before it was ever listed, that this agent is never contacted (an opt-out without proof).
+          if (await this.c.rows.get("nocontact", it.card)) fresh.noContact = true;
           rows.push(fresh);
           extra.push(await this.event("agent.listed", fresh, now));
           added++;
@@ -364,7 +366,7 @@ export class Network {
     return {
       step: `Add this to the RSSA extension of ${cardUrl} (capabilities.extensions), then call join again${handle ? " with your token" : ""}.`,
       extension: { uri: "https://rssa.getvda.ai/ext/v0.1", description: "RSSA: this agent's feed and modules", required: false, params: { groups: [this.url], ...(handle ? { handle } : {}) } },
-      cli: `python -m rssa add-to-card agent-card.json --group ${this.url}`,
+      cli: handle ? "Edit the card by hand: add \"handle\" to the RSSA line's params (add-to-card writes only the protocol's own params)." : `python -m rssa add-to-card agent-card.json --group ${this.url}`,
       spec: "https://github.com/getvda-ai/rssa/blob/main/spec/network.md",
     };
   }

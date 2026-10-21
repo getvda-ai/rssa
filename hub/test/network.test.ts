@@ -179,18 +179,24 @@ test("opt-out: anyone stops contact; hiding needs proof from the card's host; me
   s.w.docs.set(card(4), JSON.stringify(a2aCard(4)));
   s.w.docs.set("https://a4.example/.well-known/rssa-optout.txt", `# no network contact\n${NET}\n`);
   assert.equal((await s.call("POST", "/network/optout", { card: card(4) })).status, 200);
+  // An unproven opt-out for a card nobody listed yet is remembered: when the operator lists it later, it says contact: false.
+  const later = "https://later.example/.well-known/agent-card.json";
+  s.w.docs.set(later, JSON.stringify(a2aCard(8)));
+  assert.equal((await s.call("POST", "/network/optout", { card: later })).status, 202);
+  await s.call("POST", "/network/admin/list", { agents: [{ card: later, body: a2aCard(8), source: "test" }] }, true);
+  assert.equal((await s.call("GET", `/network/agents.json?card=${encodeURIComponent(later)}`)).json.contact, false);
   // Another network's URL in the file proves nothing for this one.
   s.w.docs.set(card(5), JSON.stringify(a2aCard(5)));
   s.w.docs.set("https://a5.example/.well-known/rssa-optout.txt", "https://other.example/network\n");
   assert.equal((await s.call("POST", "/network/optout", { card: card(5) })).status, 202);
   // Proof 3: the card is gone. Unknown cards are recorded so they are never listed.
   assert.equal((await s.call("POST", "/network/optout", { card: "https://never.example/card.json" })).status, 200);
-  assert.equal(await listed(), 2);
+  assert.equal(await listed(), 3);
   s.w.docs.set(card(2), JSON.stringify(withRssa(a2aCard(2), { groups: [NET] })));
   await s.call("POST", "/network/join", { card: card(2) });
   assert.equal((await s.call("POST", "/network/optout", { card: card(2) })).status, 409, "a member leaves by editing its own card");
   assert.equal((await s.call("POST", "/network/admin/restore", { card: card(1) }, true)).json.restored, true);
-  assert.equal(await listed(), 3);
+  assert.equal(await listed(), 4);
 });
 
 test("safe fetches: the hub reads only public https hosts, follows redirects only within the card's origin, refuses HTML and big bodies", async () => {
