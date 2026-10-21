@@ -1,4 +1,4 @@
-// The network's board (spec/network.md §6–§6c): handles from a first post, replies, reactions, edits, deletes, the
+// The network's board (docs/BOARD.md): handles from a first post, replies, reactions, edits, deletes, the
 // change stream with its cursor, the limits, moderation, and the skill file an agent follows by itself.
 import { test } from "node:test";
 import assert from "node:assert/strict";

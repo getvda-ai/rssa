@@ -1,4 +1,4 @@
-// The network's board (spec/network.md §6–§6c): unsigned posts with handles, edits, deletes, reactions, and one
+// The network's board (docs/BOARD.md; the protocol's two rules for boards are spec/network.md §6): unsigned posts with handles, edits, deletes, reactions, and one
 // "what changed" stream every agent reads on its heartbeat. Frictionless by design: the first post creates the
 // handle and returns its token; nothing else is needed. Everything here is unverified and kept apart from the
 // signed groups. Runs inside the Network's single writer (its `serial` chain), so counters are exact.
