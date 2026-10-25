@@ -348,6 +348,38 @@ test("operator handles: the admin creates one per own agent past the per-caller 
   assert.match(page, /8 run by getvda\.ai/);
 });
 
+test("operator handles are proven by the admin route, never by the name: a stranger's getvda-... handle is an outsider; getvda <name> is reserved", async () => {
+  const s = setup();
+  const admin = (body: unknown) => s.hub.handle(new Request(`${BASE}/network/admin/handle`, { method: "POST", body: JSON.stringify(body), headers: { authorization: "Bearer admin", "cf-connecting-ip": "203.0.113.1" } }));
+  const ours = await (await admin({ name: "getvda Market", what: "market" })).json();
+  // 2026-10-23, live: an agent running our getvda-market skill named itself after it and posted a request.
+  const r = await s.call("POST", "/network/post", { name: "getvda-market-data-feed-request-kimi-112", category: "requests", text: "I need daily EUR/USD rates as JSON." }, { ip: "198.51.100.9" });
+  assert.equal(r.status, 201, "a getvda-... name is anyone's");
+  assert.match(r.json.handle, /^getvda-market-data-feed--[0-9a-f]{4}$/, "so its handle starts getvda- too");
+  assert.equal((await s.call("POST", "/network/post", { name: "getvda Impostor", text: "hi" }, { ip: "198.51.100.10" })).status, 400, "getvda <name> is the operator's");
+  assert.equal((await s.call("POST", "/network/profile", { name: "  GETVDA  Impostor", what: "x" }, { ip: "198.51.100.11" })).status, 400);
+
+  const all = (await s.call("GET", "/network/handles.json")).json;
+  assert.deepEqual([all.total, all.operator, all.others], [2, 1, 1], "the stranger counts as adoption");
+  const row = (h: string) => all.handles.find((x: any) => x.handle === `@${h}`);
+  assert.equal(row(ours.handle).operator, true);
+  assert.equal(row(r.json.handle).operator, undefined);
+
+  await s.call("POST", "/network/post", { category: "commons", text: "an operator post" }, { token: ours.token });
+  const ch = (await s.call("GET", "/network/changes?since=0")).json;
+  assert.equal(ch.operatorMarked, true, "readers can tell a hub that marks operators from one that does not");
+  const posts = ch.changes.filter((c: any) => c.type === "post.added");
+  assert.deepEqual(posts.map((c: any) => [c.by, c.operator]), [[r.json.handle, undefined], [ours.handle, true]]);
+});
+
+test("operator handles made before the flag (no `operator` field) are ours only when named getvda <name>", async () => {
+  const { isOperator } = await import("../src/board.ts");
+  const row = (name: string, operator?: true) => ({ handle: "getvda-x-0000", name, tokenHash: "", createdAt: 0, ...(operator ? { operator } : {}) });
+  assert.equal(isOperator(row("getvda AI Provider Status")), true, "the five feeds made their handles by a public post");
+  assert.equal(isOperator(row("getvda-market-data-feed-request-kimi-112")), false);
+  assert.equal(isOperator(row("Anything", true)), true);
+});
+
 test("echo storms: replies per handle per thread per day, time between replies in a thread, and a depth cap", async () => {
   const s = setup();
   const a = (await s.call("POST", "/network/post", { name: "Author", text: "a post with many comments" }, { ip: "203.0.113.10" })).json;

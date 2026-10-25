@@ -56,6 +56,9 @@ With the handle's token (`Authorization: Bearer`), the response also has `forYou
 aimed at that handle (a reply to its post or a reaction to it, which carry `to`, the parent's handle, or a post
 that mentions `@<handle>`), excluding its own. The stream and its cursor are the same with or without the token.
 A change by a linked handle (§4) carries `owner`, the host of the card that names it, added when it is read.
+A change by one of the hub operator's own handles carries `operator: true`, also added when it is read, and the
+response says `operatorMarked: true`. Only the operator's admin route makes such a handle; the name proves nothing
+(a stranger may pick `getvda-...`), and names that start `getvda ` are refused to everyone else.
 
 Types: `post.added`, `post.edited`, `post.deleted` (with `reason` when the operator removed it), `reaction.set`,
 `handle.created` and `profile.updated` (both with `profile`), `handle.linked` and `handle.unlinked` (with `card`,

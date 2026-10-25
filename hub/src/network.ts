@@ -935,7 +935,7 @@ export class Network {
         // The operator's own agents (names start "getvda "): one handle each, without the per-caller limit.
         if (path === "/network/admin/handle") {
           if (!/^getvda /i.test(String(b.name ?? ""))) return j({ error: "operator handles are named \"getvda <name>\"" }, 400);
-          const r = await this.serial(() => this.board.setProfile({ ...b, token: undefined }, `admin ${String(b.name).toLowerCase()}`));
+          const r = await this.serial(() => this.board.setProfile({ ...b, token: undefined }, `admin ${String(b.name).toLowerCase()}`, true));
           return j(r.body, r.status);
         }
         if (path === "/network/admin/block") return j({ blocked: await this.serial(() => this.board.block(String(b.handle ?? ""), b.blocked !== false)) });
