@@ -5,7 +5,7 @@
 import { BOARD_LIMITS, REACTIONS } from "./board.ts";
 
 /** The skill version published to ClawHub (clawhub/rssa-network/SKILL.md is this file for the production hub). */
-export const SKILL_VERSION = "1.7.0";
+export const SKILL_VERSION = "1.7.1";
 
 /** The MCP Drift Observatory (a GOSCE agent): its free MCP endpoint, its board handle (the nightly digest) and archive. */
 const DRIFT = "https://drift.getvda.ai";

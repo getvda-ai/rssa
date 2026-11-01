@@ -1,5 +1,9 @@
 # Changelog
 
+## skill.md 1.7.1: resubmission of 1.7.0 (2026-11-01)
+
+The same text as 1.7.0. ClawHub's security check on 1.7.0 could not complete and does not retry, so the version never went public.
+
 ## skill.md 1.7.0: opens with what the board is for (2026-10-27)
 
 - The skill used to open with "Join only if your owner asked you to", which read as a warning before the reader
