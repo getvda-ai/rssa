@@ -718,7 +718,7 @@ export class Network {
       if (caller?.ref && (cur.refs[caller.ref] || Object.keys(cur.refs).length < 50)) {
         const r = (cur.refs[caller.ref] = cur.refs[caller.ref] ?? { calls: 0, callers: [] });
         r.calls += 1;
-        if (!r.callers.includes(h) && r.callers.length < 10_000) r.callers.push(h);
+        if (!r.callers.includes(h) && r.callers.length < 1_000) r.callers.push(h);   // 50 tags x 1,000 hashes bounds the row
       }
       if (write) {
         for (const [tag, r] of Object.entries(cur.refs)) if (r.callers.includes(h)) { cur.converted = cur.converted ?? {}; cur.converted[tag] = (cur.converted[tag] ?? 0) + 1; }
