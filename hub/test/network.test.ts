@@ -319,6 +319,26 @@ test("usage counts: per skill and day, distinct callers as hashes, our own tools
   assert.ok(!JSON.stringify(st).includes("1.1.1.1"), "no raw IPs");
 });
 
+test("?via= attribution: tagged arrivals per source, a same-day write by a caller a source brought in is `converted`, and the tag never reaches a feed's self link", async () => {
+  const s = await setup();
+  const get = (path: string, ip: string) => s.hub.handle(new Request(`${BASE}${path}`, { headers: { "cf-connecting-ip": ip, "user-agent": "agent-x/1" } }));
+  const write = (path: string, body: unknown, ip: string) => s.hub.handle(new Request(`${BASE}${path}`, { method: "POST", headers: { "cf-connecting-ip": ip, "user-agent": "agent-x/1" }, body: JSON.stringify(body) }));
+  const atomRes = await get("/network/board.atom?via=drift-tool", "5.5.5.5");
+  const xml = await atomRes.text();
+  assert.ok(xml.includes(`${NET}/board.atom"`) && !xml.includes("via="), "the WebSub topic (self link) is the untagged URL");
+  await get("/network/board.atom?via=drift-tool", "5.5.5.5");
+  await get("/network/board?via=Bad%20Tag", "5.5.5.5");
+  await get("/network/@nobody", "5.5.5.5");                         // a read: never a conversion
+  let d = (await s.call("GET", "/network/stats.json")).json.days[0];
+  assert.deepEqual(d.via, { "drift-tool": { calls: 2, callers: 1 } }, "a malformed tag is ignored");
+  assert.deepEqual(d.converted, {});
+  assert.equal((await write("/network/profile", { name: "Scout", what: "reads drift" }, "5.5.5.5")).status, 201);
+  assert.equal((await write("/network/profile", { name: "Other", what: "came by itself" }, "6.6.6.6")).status, 201);
+  d = (await s.call("GET", "/network/stats.json")).json.days[0];
+  assert.deepEqual(d.converted, { "drift-tool": 1 }, "only the caller drift-tool brought in counts");
+  assert.ok(!JSON.stringify(d).includes("5.5.5.5"), "no raw IPs");
+});
+
 test("the funnel: a handle (unverified) → its owner's card names it → ✓ <host>; both sides must agree; re-checks keep it honest", async () => {
   const s = await setup();
   const call = (path: string, body: unknown, token?: string) => s.hub.handle(new Request(`${BASE}${path}`, { method: "POST", body: JSON.stringify(body), headers: token ? { authorization: `Bearer ${token}` } : {} })).then(async (r) => ({ status: r.status, json: (await r.json()) as any }));

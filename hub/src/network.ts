@@ -175,8 +175,11 @@ export function eventSummary(type: string, r: AgentRow): string {
   return `${head} ${d.length > room ? `${d.slice(0, room - 1)}…` : d}`;
 }
 
-const caller = (req: Request) => ({ ip: req.headers.get("cf-connecting-ip") ?? undefined, ua: req.headers.get("user-agent") ?? undefined });
-type Caller = { ip?: string; ua?: string };
+/** `?via=<source>` on a link we publish (a drift answer, now.json, a page): which pointer brought a caller. Lowercase
+ * letters, digits and dashes only, or it is ignored. Read-only attribution: it never reaches a feed's self link. */
+export const refOf = (req: Request) => { const v = new URL(req.url).searchParams.get("via") ?? ""; return /^[a-z0-9-]{1,24}$/.test(v) ? v : undefined; };
+const caller = (req: Request) => ({ ip: req.headers.get("cf-connecting-ip") ?? undefined, ua: req.headers.get("user-agent") ?? undefined, ref: refOf(req) });
+type Caller = { ip?: string; ua?: string; ref?: string };
 /** Set by the hub on the board calls it makes for its MCP tools (an outside caller's is dropped), so stats tell them apart. */
 export const VIA = "x-rssa-via";
 const via = (req: Request) => (req.headers.get(VIA) === "mcp" ? "mcp" : "http");
@@ -693,11 +696,12 @@ export class Network {
    * (IP, user agent): the salt never leaves the hub and changes daily, so callers cannot be followed across days.
    * Our own tools (user agent containing `gosce-rssa` or `rssa-network-seeder`) are counted as `self`, never as use.
    */
-  async count(skill: string, caller?: { ip?: string; ua?: string }) {
+  async count(skill: string, caller?: Caller, write = false) {
     const d = day(this.c.now());
     const ua = caller?.ua ?? "";
     const k = `stat ${d}`;
-    const cur = JSON.parse((await this.c.rows.get("count", k)) ?? "{}") as { calls?: Record<string, number>; callers?: string[]; self?: number };
+    const cur = JSON.parse((await this.c.rows.get("count", k)) ?? "{}") as { calls?: Record<string, number>; callers?: string[]; self?: number;
+      refs?: Record<string, { calls: number; callers: string[] }>; converted?: Record<string, number> };
     if (/gosce-rssa|rssa-network-seeder/.test(ua)) cur.self = (cur.self ?? 0) + 1;
     else {
       cur.calls = cur.calls ?? {};
@@ -708,6 +712,17 @@ export class Network {
       const h = await short(`${salt} ${caller?.ip ?? ""} ${ua}`);
       cur.callers = cur.callers ?? [];
       if (!cur.callers.includes(h) && cur.callers.length < 10_000) cur.callers.push(h);
+      // Attribution: a tagged arrival, and a WRITE (handle, post, join) the same day by a caller a tag brought in.
+      // Same daily-salted hash as above, so nothing new is kept about anyone and nothing links across days.
+      cur.refs = cur.refs ?? {};
+      if (caller?.ref && (cur.refs[caller.ref] || Object.keys(cur.refs).length < 50)) {
+        const r = (cur.refs[caller.ref] = cur.refs[caller.ref] ?? { calls: 0, callers: [] });
+        r.calls += 1;
+        if (!r.callers.includes(h) && r.callers.length < 10_000) r.callers.push(h);
+      }
+      if (write) {
+        for (const [tag, r] of Object.entries(cur.refs)) if (r.callers.includes(h)) { cur.converted = cur.converted ?? {}; cur.converted[tag] = (cur.converted[tag] ?? 0) + 1; }
+      }
       if (puts.length) await this.c.rows.write(puts, []);
     }
     await this.c.rows.write([["count", k, JSON.stringify(cur)]], []);
@@ -716,8 +731,9 @@ export class Network {
   async stats(days = 30) {
     const rows = (await this.c.rows.list("count")).filter(([k]) => k.startsWith("stat ")).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, days);
     return {
-      note: "Uses of the network by outside callers: calls per skill and distinct callers per day (daily-salted hashes, not people). Our own tools are 'self'.",
-      days: rows.map(([k, v]) => { const x = JSON.parse(v); return { day: k.slice(5), calls: x.calls ?? {}, callers: (x.callers ?? []).length, self: x.self ?? 0 }; }),
+      note: "Uses of the network by outside callers: calls per skill and distinct callers per day (daily-salted hashes, not people). Our own tools are 'self'. `via`: arrivals on a link tagged ?via=<source> (calls, distinct callers); `converted`: writes (profile, post, join) the same day by a caller that source brought in.",
+      days: rows.map(([k, v]) => { const x = JSON.parse(v); return { day: k.slice(5), calls: x.calls ?? {}, callers: (x.callers ?? []).length, self: x.self ?? 0,
+        via: Object.fromEntries(Object.entries((x.refs ?? {}) as Record<string, { calls: number; callers: string[] }>).map(([t, r]) => [t, { calls: r.calls, callers: r.callers.length }])), converted: x.converted ?? {} }; }),
     };
   }
 
@@ -920,7 +936,9 @@ export class Network {
         const op = path.slice("/network/".length);
         const r = op === "join" ? await this.join(b.card, b.token) : op === "optout" ? await this.optout(b.card) : op === "post" ? await this.post(b, caller(req))
           : op === "edit" ? await this.edit(b) : op === "delete" ? await this.remove(b) : op === "profile" ? await this.profile(b, caller(req)) : await this.react(b);
-        try { await this.count(`${via(req)}:${path.slice("/network/".length)}`, caller(req)); } catch { /* counting never fails a call */ }
+        // A write that succeeded is what `converted` counts (handle made, post landed, card joined); reads never are.
+        const wrote = r.status < 300 && (op === "profile" || op === "post" || op === "join");
+        try { await this.count(`${via(req)}:${path.slice("/network/".length)}`, caller(req), wrote); } catch { /* counting never fails a call */ }
         return j(r.body, r.status);
       }
       if (req.method === "POST" && path.startsWith("/network/admin/")) {
