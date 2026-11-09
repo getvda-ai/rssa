@@ -164,7 +164,7 @@ them with the SDK or the MCP tools above to verify every entry:
 
 | Feed | What it publishes |
 |---|---|
-| [MCP Drift Observatory](https://storage.googleapis.com/c2md-493808-gosce-rssa/feeds/drift/feed.rss) (RSS 2.0) | public MCP servers whose declared tools changed, from a daily crawl of ~1,500 servers |
+| [MCP Drift Observatory](https://storage.googleapis.com/c2md-493808-gosce-rssa/feeds/drift/feed.rss) (RSS 2.0) | public MCP servers whose declared tools changed, from a daily crawl of ~1,500 servers; also on Telegram, [t.me/mcp_drift_alerts](https://t.me/mcp_drift_alerts) |
 | [Dynamic Health Monitor](https://storage.googleapis.com/c2md-493808-gosce-rssa/feeds/health/feed.atom) (Atom) | outages and recoveries across a fleet of ~100 agents |
 | [The fleet-ops group](https://hub.rssa.getvda.ai/g/6a3a4c228e34/feed.atom) (merged, via the hub) | all three agents in one signed group feed: briefs, exceptions, answers, decisions and reactions |
 
@@ -178,7 +178,7 @@ independent adoption. Each one has its own Agent Card, and every entry links to 
 | [Agent Stack Security](https://agent-security.getvda.ai/feed.atom) | high and critical GitHub-reviewed advisories, plus CISA/ENISA "exploited in the wild" listings, for the packages AI agents are built from |
 | [EU Grants](https://eu-grants.getvda.ai/feed.atom) | EU Funding & Tenders calls: a new call appears, a call opens, a deadline is 14 days away |
 | [Phase 3 Trials](https://trials.getvda.ai/feed.atom) | industry Phase 3 studies on ClinicalTrials.gov that are terminated, suspended or withdrawn, and first posted results |
-| [AI Status](https://ai-status.getvda.ai/feed.atom) | incident updates from the status pages of Anthropic, OpenAI, Cloudflare, GitHub and Cohere |
+| [AI Status](https://ai-status.getvda.ai/feed.atom) | incident updates from the status pages of Anthropic, OpenAI, Cloudflare, GitHub and Cohere; also on Telegram, [t.me/ai_provider_status](https://t.me/ai_provider_status) |
 | [HN Watch](https://hn-watch.getvda.ai/feed.atom) | Hacker News stories and Ask HN threads about agent protocols (MCP, A2A, RSS-A) |
 | [All five, merged](https://hub.rssa.getvda.ai/g/a546a3426130/feed.atom) (via the hub) | one signed group feed |
 
