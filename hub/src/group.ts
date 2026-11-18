@@ -22,6 +22,9 @@ export const FETCH_POOL = 6;
 const XML_CHUNK = 450_000;
 /** Bounds WebSub fan-out per group (budget guard). */
 export const MAX_SUBSCRIBERS = 100;
+/** Gate ids (reader= card URLs, client= install ids): new ones a day, and in total, per kind. */
+export const NEW_GATE_IDS_PER_DAY = 200;
+export const MAX_GATE_IDS = 5_000;
 const REJECTED_LOG = 100;
 /**
  * Hub budget guard, by the hub's own clock (non-normative): at most this many accepted entries,
@@ -842,11 +845,30 @@ export class Group {
 
   private async noteReader(req: Request) {
     // Day-60 gate metric: distinct readers that identify their Agent Card in User-Agent ("reader=<card URL>").
-    const mt = /reader=(\S+)/.exec(req.headers.get("user-agent") ?? "");
-    if (!mt) return;
-    const seen = await this.c.rows.get("reader", mt[1]);
-    if (seen && this.c.now() - Number(seen) < 86_400_000) return;
-    await this.c.rows.write([["reader", mt[1], String(this.c.now())]], []);
+    // Tools without an Agent Card (CI actions, editor plugins) may send "client=<12 hex>", an anonymous install id.
+    // Counted apart from readers, so the gate's card-based number stays what it says.
+    const ua = req.headers.get("user-agent") ?? "";
+    const mt = /reader=(https:\/\/\S{1,504})(?:\s|$)/.exec(ua);
+    const mc = mt ? null : /\bclient=([0-9a-f]{12})\b/.exec(ua);
+    const kind = mt ? "reader" : mc ? "client" : null;
+    if (!kind) return;
+    const key = (mt ?? mc)![1];
+    const now = this.c.now();
+    const seen = await this.c.rows.get(kind, key);
+    if (seen && now - Number(seen) < 86_400_000) return;
+    if (seen) { await this.c.rows.write([[kind, key, String(now)]], []); return; }
+    // A NEW id. Anyone can make one up on a plain GET, so new ids are capped per kind, per day
+    // and in total: the rows (and status.json, which lists them) stay bounded whatever a
+    // stranger sends ([[rssa-hub-budget]]: nobody outside may drive spend). Hitting a cap is
+    // recorded, and status.json shows it, so a capped count is never read as a real one.
+    const day = new Date(now).toISOString().slice(0, 10);
+    const total = Number((await this.c.rows.get("idcount", kind)) ?? 0);
+    const today = Number((await this.c.rows.get("idday", `${kind}:${day}`)) ?? 0);
+    if (total >= MAX_GATE_IDS || today >= NEW_GATE_IDS_PER_DAY) {
+      if ((await this.c.rows.get("idcapped", kind)) !== day) await this.c.rows.write([["idcapped", kind, day]], []);
+      return;
+    }
+    await this.c.rows.write([[kind, key, String(now)], ["idcount", kind, String(total + 1)], ["idday", `${kind}:${day}`, String(today + 1)]], []);
   }
 
   /** A member's declared cadence, last signal and liveness state. */
@@ -904,6 +926,8 @@ export class Group {
       if (req.method === "GET" && leaf === "status.json") {
         const f = await this.loadFull();
         const readers = (await this.c.rows.list("reader")).map(([k]) => k);
+        const clients = (await this.c.rows.list("client")).length;
+        const capped = await this.c.rows.list("idcapped");   // [kind, last UTC day a cap was hit]
         const subs = Object.values(await this.loadSubs()).filter((s) => s.expires > this.c.now());
         const memberCards = new Set(Object.values(f.cards).map((c) => c.cardUrl));
         return j({
@@ -913,7 +937,8 @@ export class Group {
             ...x, lastFetch: this.lastFetch.get(x.feed), ...this.live(f, x.feed),
           })),
           entries: f.entries.length, rejected: m.rejected.slice(0, 20),
-          gate: { readers: readers.length, outsideReaders: readers.filter((r) => !memberCards.has(r)).length, websubSubscribers: subs.length },
+          gate: { readers: readers.length, outsideReaders: readers.filter((r) => !memberCards.has(r)).length, websubSubscribers: subs.length, clients,
+            ...(capped.length ? { capped: Object.fromEntries(capped) } : {}) },
         });
       }
       if (req.method === "GET" && leaf === "identity.json") {

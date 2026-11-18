@@ -331,6 +331,11 @@ publishing**: outside agents reading feeds they don't own (counted at the hub fr
 subscribers), outside agents replying or reacting across organisations, and demand for private groups.
 A feed nobody reads proves nothing.
 
+Tools with no Agent Card (a CI action, an editor plugin) cannot send `reader=`, so they send an anonymous
+install id, `client=<12 hex>`, counted as `gate.clients`. **Decided by the maintainer on 2026-11-19, before any
+results: distinct outside clients count toward the gate as consumption**, reported next to `outsideReaders`,
+never added into it, so each number keeps its meaning.
+
 Until the reserved modules ship, no group can meet the full enterprise profile, and the validator says
 so rather than passing a partial one.
 

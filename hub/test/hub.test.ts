@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { Hub, memoryStore } from "../src/hub.ts";
+import { NEW_GATE_IDS_PER_DAY, MAX_GATE_IDS } from "../src/group.ts";
 import { demoFetch, DEMO_BASE } from "../../scripts/demo-fetch.ts";
 import { keyFromJwk, parseFeed, readFeed, signEntry, atomXml } from "../../packages/sdk-js/src/index.ts";
 
@@ -124,7 +125,46 @@ test("admin routes need the token; WebSub publish ping refreshes; reader UA coun
   assert.equal(ping2.status, 204);
   await hub.handle(new Request(`https://hub.test/g/${id}/feed.atom`, { headers: { "user-agent": "rssa-sdk/0.1 reader=https://outsider.example/.well-known/agent-card.json" } }));
   const status = await (await hub.handle(new Request(`https://hub.test/g/${id}/status.json`))).json();
-  assert.deepEqual(status.gate, { readers: 1, outsideReaders: 1, websubSubscribers: 0 });
+  assert.deepEqual(status.gate, { readers: 1, outsideReaders: 1, websubSubscribers: 0, clients: 0 });
+  // A card-less tool's anonymous install id is counted apart from readers, once per id.
+  for (const _ of [1, 2]) await hub.handle(new Request(`https://hub.test/g/${id}/feed.atom`, { headers: { "user-agent": "mcp-drift-guard/0.1.0 rssa-sdk/0.3 client=0123456789ab" } }));
+  await hub.handle(new Request(`https://hub.test/g/${id}/feed.atom`, { headers: { "user-agent": "x client=not-hex-at-all" } }));
+  const status2 = (await (await hub.handle(new Request(`https://hub.test/g/${id}/status.json`))).json()) as any;
+  assert.deepEqual(status2.gate, { readers: 1, outsideReaders: 1, websubSubscribers: 0, clients: 1 });
+});
+
+test("made-up gate ids are capped per day and in total; the cap shows in status.json; known ids still count", async () => {
+  const { hub, id, tick } = await setup();
+  await hub.refresh(id);
+  const get = (ua: string) => hub.handle(new Request(`https://hub.test/g/${id}/feed.atom`, { headers: { "user-agent": ua } }));
+  const gate = async () => ((await (await hub.handle(new Request(`https://hub.test/g/${id}/status.json`))).json()) as any).gate;
+  const hex = (n: number) => n.toString(16).padStart(12, "0");
+  await get(`t client=${hex(0)}`);                                   // a real install, seen before the flood
+  for (let i = 1; i <= NEW_GATE_IDS_PER_DAY + 50; i++) await get(`t client=${hex(i)}`);
+  let g = await gate();
+  assert.equal(g.clients, NEW_GATE_IDS_PER_DAY, "new ids stop at the daily cap");
+  assert.ok(g.capped?.client, "status.json says the count is capped");
+  assert.equal(g.capped.reader, undefined, "only the kind that hit the cap is marked");
+  // Card URLs: not https, or absurdly long, are never counted.
+  await get("t reader=http://plain.example/card.json");
+  await get(`t reader=https://x.example/${"a".repeat(600)}`);
+  assert.equal((await gate()).readers, 0);
+  // Next day the daily allowance resets, and the known id still refreshes without a new row.
+  tick(86_400_000 + 1);
+  await get(`t client=${hex(0)}`);
+  await get(`t client=${hex(100_000)}`);
+  g = await gate();
+  assert.equal(g.clients, NEW_GATE_IDS_PER_DAY + 1);
+  // The total cap holds across days.
+  for (let d = 0; g.clients < MAX_GATE_IDS && d < 40; d++) {
+    tick(86_400_000 + 1);
+    for (let i = 0; i < NEW_GATE_IDS_PER_DAY; i++) await get(`t client=${hex(200_000 + d * 1000 + i)}`);
+    g = await gate();
+  }
+  assert.equal(g.clients, MAX_GATE_IDS);
+  tick(86_400_000 + 1);
+  await get(`t client=${hex(999_999)}`);
+  assert.equal((await gate()).clients, MAX_GATE_IDS, "nothing past the total cap");
 });
 
 test("re-reading feeds never re-counts reactions or re-logs rejections (found live, 2026-10-07)", async () => {

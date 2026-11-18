@@ -1,5 +1,18 @@
 # Changelog
 
+## hub 0.8.3: anonymous client ids, counted apart from readers (2026-11-19)
+
+A tool with no Agent Card (a CI action, an editor plugin) may send `client=<12 hex>` in User-Agent instead of
+`reader=<card URL>`. The hub keeps one row per id and shows the count as `gate.clients` in a group's `status.json`.
+It is never added to `readers` or `outsideReaders`, so the gate's card-based numbers mean what they did.
+First sender: [mcp-drift-guard](https://github.com/getvda-ai/mcp-drift-guard), which reads the drift observatory's
+signed digests on every run. Outside clients count toward the day-60 gate (decided 2026-11-19, before any results;
+see DESIGN.md §6).
+
+Gate ids are now bounded: anyone can invent `reader=` or `client=` values on a plain GET, so new ids are capped
+per kind at 200 a day and 5,000 in total (`gate.capped` in `status.json` shows when a cap was hit). `reader=` must
+be an `https` URL of at most 512 characters.
+
 ## hub 0.8.2: which pointer brings callers (2026-11-04)
 
 `?via=<source>` on a link (lowercase letters, digits and dashes, up to 24) is counted per day in `/network/stats.json`

@@ -194,7 +194,7 @@ test("imports a group from the v0.1 KV layout once, with entries, rejections, re
   assert.deepEqual(await r.json(), { entries: 1, rejected: 1, members: 1, cards: 1, decided: 2, sigRejected: 0, reactions: 1, subscribers: 1, readers: 1 });
   assert.equal((await imp()).status, 500, "a second import is refused");
   const st = await status(hub, id);
-  assert.deepEqual(st.gate, { readers: 1, outsideReaders: 1, websubSubscribers: 1 });
+  assert.deepEqual(st.gate, { readers: 1, outsideReaders: 1, websubSubscribers: 1, clients: 0 });
   assert.equal(st.rejected.length, 1);
   // The imported group refreshes normally and pushes to the imported subscriber.
   g.web.resetCount();

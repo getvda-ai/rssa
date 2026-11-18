@@ -127,8 +127,9 @@ it re-arms itself.
   chunks, not the entries.
 - **Filtered reads** (`to`, `type`, `thread`) load the entries.
 - **Unknown group ids** are refused by the Worker from a cached group list before any DO exists for them.
-- **Reader counting** for the day-60 gate writes one row per reader per day, with no shared key and no lost
-  updates.
+- **Reader counting** for the day-60 gate writes one row per reader (`reader=`) or client (`client=`) per day,
+  with no shared key and no lost updates. Anyone can invent ids on a plain GET, so NEW ids are capped per kind
+  at 200 a day and 5,000 in total; a hit cap shows as `gate.capped` in `status.json`.
 
 ### Delivery (changed after the Gemini review)
 
